@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Asegura altura completa para el layout */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Opcional: Define tu fuente base */
+:root {
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+/* Elimina estilos de Vite base innecesarios */
+body {
+  background-color: #f9fafb; /* color base claro */
+  color: #1f2937; /* text-gray-800 */
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* Estilo base para enlaces */
+a {
+  @apply text-blue-600 hover:underline font-medium;
+}
+
+/* Botones base (puedes seguir usando Tailwind directamente en los componentes) */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+/* Estilo para h1 si no usas clases directamente */
+h1 {
+  font-size: 2.25rem; /* text-3xl */
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+/* Estilos oscuros si usas modo dark más adelante */
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #1e1e1e;
+    color: #000000;
+  }
+}

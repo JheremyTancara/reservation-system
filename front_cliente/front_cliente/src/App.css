@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-cover bg-center text-white min-h-screen;
+  background-image: url('./assets/fondo-dashboard.png');
+  font-family: 'Poppins', sans-serif;
+}

@@ -1,0 +1,41 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Sistema Multi-Tenancy para Restaurantes",
+  "main": "master-server.js",
+  "scripts": {
+    "start": "node master-server.js",
+    "dev": "nodemon master-server.js",
+    "tenant": "node tenant-server.js",
+    "dev-tenant": "nodemon tenant-server.js",
+    "setup": "node setup-multitenancy.js",
+    "update-db": "node update-database.js",
+    "test-db": "node test-db.js",
+    "test-api": "node test-api.js"
+  },
+  "keywords": [
+    "multi-tenancy",
+    "restaurant",
+    "reservations"
+  ],
+  "author": "Gus Restaurant Group",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.2",
+    "cloudinary": "^1.41.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "http-proxy": "^1.18.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.1",
+    "multer-storage-cloudinary": "^4.0.0",
+    "mysql2": "^3.14.1",
+    "nodemailer": "^6.10.1",
+    "sequelize": "^6.37.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
