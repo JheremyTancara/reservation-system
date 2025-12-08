@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: 5174,
     host: true,
     proxy: {
       // Proxy para el servidor maestro
@@ -33,5 +33,4 @@ export default defineConfig({
       },
     },
   },
-  base: "/chat-client/",
 });

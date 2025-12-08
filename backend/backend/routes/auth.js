@@ -19,7 +19,7 @@ const dbConfig = {
   host: process.env.DB_HOST || "localhost",
   port: process.env.DB_PORT || "3306",
   user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "IJgonaldos",
+  password: process.env.DB_PASSWORD || "AlejandraVargas12",
   database: process.env.DB_NAME || "chatbot_reservas",
 };
 
@@ -155,8 +155,8 @@ router.post("/login", async (req, res) => {
           peticion_puerto: peticionPuertoStr,
           restaurant: user.nombre
         });
-        return res.status(403).json({ 
-          error: `Acceso denegado: Este restaurante (${user.nombre}) pertenece al puerto ${userPuertoStr}, pero estás intentando acceder desde el puerto ${peticionPuertoStr}. Por favor, accede desde http://localhost:${userPuertoStr}/login`
+        return res.status(401).json({ 
+          error: "Credenciales inválidas"
         });
       }
       

@@ -64,7 +64,14 @@ const Login = () => {
       
       const res = await loginUsuario(loginData);
       
-      console.log("✅ Respuesta del servidor:", res.data);
+      console.log("==========================================");
+      console.log("✅ RESPUESTA COMPLETA DEL SERVIDOR:");
+      console.log("==========================================");
+      console.log("res.data:", res.data);
+      console.log("res.data.user:", res.data.user);
+      console.log("res.data.user.puerto:", res.data.user.puerto);
+      console.log("Tipo de puerto:", typeof res.data.user.puerto);
+      console.log("==========================================");
 
       if (!res.data || !res.data.user) {
         setError("Respuesta inválida del servidor");
@@ -75,8 +82,16 @@ const Login = () => {
       // Si llegamos aquí, el login fue exitoso y el puerto coincide
       const userPort = res.data.user.puerto;
       
-      if (!userPort || userPort === null || userPort === undefined || userPort === "null" || userPort === "undefined") {
-        console.error("❌ El usuario no tiene puerto asignado");
+      console.log(`🔍 Puerto extraído del usuario:`, {
+        puerto: userPort,
+        tipo: typeof userPort,
+        esNulo: userPort === null,
+        esUndefined: userPort === undefined,
+        valor: userPort
+      });
+      
+      if (!userPort || userPort === null || userPort === undefined || userPort === "null" || userPort === "undefined" || userPort === 3000) {
+        console.error("❌ El usuario no tiene puerto asignado o puerto inválido:", userPort);
         setError("El usuario no tiene puerto asignado. Contacta al administrador.");
         return;
       }
@@ -90,12 +105,19 @@ const Login = () => {
       const userPortStr = String(userPort).trim();
       console.log(`🚀 Preparando redirección:`);
       console.log(`   - Puerto del usuario: ${userPortStr}`);
+      console.log(`   - Puerto actual: ${currentPortStr}`);
+      console.log(`   - URL de redirección: http://localhost:${userPortStr}/dashboard`);
 
-      // Redirigir al dashboard del tenant
+      // Redirigir al dashboard del puerto específico del restaurante
       setTimeout(() => {
+        // Siempre redirigir al puerto del restaurante (3001, 3002, etc.)
         const targetUrl = `http://localhost:${userPortStr}/dashboard`;
-        console.log(`🚀 Redirigiendo a: ${targetUrl}`);
-        window.location.href = targetUrl;
+        console.log(`🚀 EJECUTANDO REDIRECCIÓN A: ${targetUrl}`);
+        console.log(`🚀 Tipo de userPortStr: ${typeof userPortStr}, valor: "${userPortStr}"`);
+        
+        // Usar window.location.replace en lugar de href para forzar la redirección
+        alert(`Redirigiendo a: ${targetUrl}`); // Para confirmar la URL
+        window.location.replace(targetUrl);
       }, 1500);
     } catch (err) {
       console.error("❌ Error completo en login:", err);
@@ -165,7 +187,6 @@ const Login = () => {
             )}
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-red-700 text-sm font-semibold mb-1">❌ Error de acceso</p>
                 <p className="text-red-600 text-sm">{error}</p>
               </div>
             )}

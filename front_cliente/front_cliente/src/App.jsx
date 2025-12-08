@@ -4,7 +4,7 @@ import fondo from "./assets/fondo-dashboard.png";
 import logo from "./assets/logo-guss.png";
 import pizzaBg from "./assets/pizza_dashboard.jpg";
 import pizzaLogo from "./assets/pizza_logo.png";
-import ChatBot from "./components/ChatBot";
+import ChatBotSimple from "./components/ChatBotSimple";
 
 function App() {
   const [currentRestaurant, setCurrentRestaurant] = useState(null);
@@ -12,28 +12,51 @@ function App() {
   const [error, setError] = useState(null);
   const [chatStarted, setChatStarted] = useState(false);
 
-  // Detecta el puerto
-  const port = window.location.port;
-  const isPizza = port === "3002";
+  // Detectar restaurante desde la URL
+  const getRestaurantPortFromURL = () => {
+    const path = window.location.pathname;
+    
+    // Buscar patrones específicos: /3001-chat-client/ o /3002-chat-client/
+    const match = path.match(/\/(3001|3002)-chat-client\/?/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Si no hay match, retornar null para mostrar error
+    return null;
+  };
+
+  const restaurantPort = getRestaurantPortFromURL();
+  const isPizza = restaurantPort === "3002";
 
   useEffect(() => {
-    detectRestaurant();
+    if (restaurantPort) {
+      detectRestaurant();
+    }
   }, []);
 
   const detectRestaurant = async () => {
     try {
       setLoading(true);
-      const apiUrl = `http://localhost:${port}/api`;
+      const apiUrl = `http://localhost:${restaurantPort}/api`;
       let restaurantInfo = null;
       try {
         const res = await fetch(`${apiUrl}/tenant/info`);
         restaurantInfo = await res.json();
       } catch (e) {
-        restaurantInfo = { name: `Restaurante ${port}`, id: port };
+        // Fallback con nombre genérico si no se puede obtener del backend
+        const restaurantNames = {
+          '3001': 'Gus\'s Restaurant',
+          '3002': 'Pizza Palace',
+        };
+        restaurantInfo = { 
+          name: restaurantNames[restaurantPort] || `Restaurante ${restaurantPort}`, 
+          id: restaurantPort 
+        };
       }
       setCurrentRestaurant({
         ...restaurantInfo,
-        port,
+        port: restaurantPort,
         apiUrl,
       });
     } catch (error) {
@@ -42,6 +65,52 @@ function App() {
       setLoading(false);
     }
   };
+
+  // Si no hay puerto válido, mostrar error con URLs correctas
+  if (!restaurantPort) {
+    return (
+      <div
+        className="min-h-screen w-full flex flex-col items-center justify-center"
+        style={{
+          backgroundImage: `url(${fondo})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
+        <div className="bg-white/95 rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
+          <div className="text-center mb-6">
+            <div className="text-6xl mb-4">🚫</div>
+            <h1 className="text-2xl font-bold text-gray-800 mb-2">
+              URL no válida
+            </h1>
+            <p className="text-gray-600 mb-6">
+              Por favor, accede a través de una de estas URLs:
+            </p>
+          </div>
+          <div className="space-y-3">
+            <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+              <div className="flex items-center gap-3 mb-2">
+                <img src={logo} alt="Gus's" className="w-8 h-8 rounded-full" />
+                <span className="font-semibold text-orange-700">Gus's Restaurant</span>
+              </div>
+              <code className="text-sm text-gray-700 break-all block">
+                http://localhost:5174/3001-chat-client/
+              </code>
+            </div>
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center gap-3 mb-2">
+                <img src={pizzaLogo} alt="Pizza" className="w-8 h-8 rounded-full" />
+                <span className="font-semibold text-red-700">Pizza Palace</span>
+              </div>
+              <code className="text-sm text-gray-700 break-all block">
+                http://localhost:5174/3002-chat-client/
+              </code>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -118,7 +187,7 @@ function App() {
         {/* Mostrar ChatBot solo si se ha hecho clic en el botón */}
         {chatStarted && (
           <div className="w-full">
-            <ChatBot restaurant={currentRestaurant} />
+            <ChatBotSimple restaurant={currentRestaurant} />
           </div>
         )}
       </div>

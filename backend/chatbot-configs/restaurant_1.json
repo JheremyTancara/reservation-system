@@ -1,0 +1,48 @@
+{
+  "contexto": "Gusto",
+  "telefono": "67505507",
+  "menuEntrenamiento": [
+    {
+      "nombre": "coca",
+      "precio": 12,
+      "branch_id": 1,
+      "branch_nombre": "Gus Restobar Quillacollo"
+    },
+    {
+      "nombre": "pato",
+      "precio": 25,
+      "branch_id": 1,
+      "branch_nombre": "Gus Restobar Quillacollo"
+    },
+    {
+      "nombre": "estufa",
+      "precio": 14,
+      "branch_id": 1,
+      "branch_nombre": "Gus Restobar Quillacollo"
+    },
+    {
+      "nombre": "Sopa",
+      "precio": 8,
+      "branch_id": 1,
+      "branch_nombre": "Gus Restobar Quillacollo"
+    },
+    {
+      "nombre": "Pan con Ajo",
+      "precio": 10,
+      "branch_id": 1,
+      "branch_nombre": "Gus Restobar Quillacollo"
+    },
+    {
+      "nombre": "Pollo",
+      "precio": 12,
+      "branch_id": 2,
+      "branch_nombre": "Gus Restobar America"
+    },
+    {
+      "nombre": "Pollo",
+      "precio": 12,
+      "branch_id": 3,
+      "branch_nombre": "Gus Restobar Centro"
+    }
+  ]
+}

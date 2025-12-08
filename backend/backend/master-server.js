@@ -47,7 +47,7 @@ const dbConfig = {
   host: process.env.DB_HOST || "localhost",
   port: process.env.DB_PORT || "3306",
   user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "IJgonaldos",
+  password: process.env.DB_PASSWORD || "AlejandraVargas12",
   database: process.env.DB_NAME || "chatbot_reservas",
 };
 
@@ -218,6 +218,11 @@ async function loadActiveRestaurants() {
 
 // RUTAS DEL SERVIDOR MAESTRO
 
+// Ruta de prueba
+app.get("/api/test", (req, res) => {
+  res.json({ message: "Backend funcionando correctamente", timestamp: new Date() });
+});
+
 // 1. Crear nuevo restaurante
 app.post("/api/restaurants", async (req, res) => {
   try {
@@ -303,7 +308,7 @@ app.get("/api/restaurants", async (req, res) => {
   try {
     const connection = await connectDB();
     const [restaurants] = await connection.execute(
-      "SELECT id, nombre, email, telefono, direccion, puerto, subdominio, activo, created_at, logo_url, imagen_url, background_url, carrusel_images, divisa FROM restaurants"
+      "SELECT id, nombre, email, telefono, direccion, puerto, subdominio, activo, created_at FROM restaurants"
     );
 
     // Agregar información de estado de las instancias
@@ -311,7 +316,6 @@ app.get("/api/restaurants", async (req, res) => {
       ...restaurant,
       instanceActive: activeInstances.has(restaurant.id),
       url: `http://${restaurant.subdominio}.localhost:${restaurant.puerto}`,
-      carrusel_images: restaurant.carrusel_images ? JSON.parse(restaurant.carrusel_images) : null,
     }));
 
     await connection.end();

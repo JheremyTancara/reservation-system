@@ -37,6 +37,17 @@ const Dashboard = () => {
     branch_id: "",
   });
   const [mensajeTag, setMensajeTag] = useState("");
+  const [guardandoTelefono, setGuardandoTelefono] = useState(false);
+  const [guardandoContexto, setGuardandoContexto] = useState(false);
+  const [showMenuPopup, setShowMenuPopup] = useState(false);
+  const [configuracion, setConfiguracion] = useState({
+    platosMinimos: 5,
+    colorTema: "#ea580c", // orange-600
+    logoUrl: logoGuss, // Logo predeterminado de Gus's
+    fondoUrl: bg, // Fondo predeterminado de Gus's
+  });
+  const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
+  const [mensajeConfiguracion, setMensajeConfiguracion] = useState("");
   const api = useApi();
 
   // Detectar puerto
@@ -45,15 +56,83 @@ const Dashboard = () => {
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
+  // Función para convertir color hex a rgba con opacidad
+  const hexToRgba = (hex, alpha = 0.15) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  // Función para ajustar brillo del color (crear tonalidades)
+  const adjustBrightness = (hex, percent) => {
+    const num = parseInt(hex.slice(1), 16);
+    const r = Math.min(255, Math.max(0, ((num >> 16) & 0xff) + percent));
+    const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + percent));
+    const b = Math.min(255, Math.max(0, (num & 0xff) + percent));
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+  };
+
+  // Función para generar color complementario (opuesto)
+  const getComplementaryColor = (hex) => {
+    const num = parseInt(hex.slice(1), 16);
+    const r = 255 - ((num >> 16) & 0xff);
+    const g = 255 - ((num >> 8) & 0xff);
+    const b = 255 - (num & 0xff);
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+  };
+
+  // Función para generar un color análogo diferente (verde para naranja, etc)
+  const getAnalogousColor = (hex) => {
+    const num = parseInt(hex.slice(1), 16);
+    const r = (num >> 16) & 0xff;
+    const g = (num >> 8) & 0xff;
+    const b = num & 0xff;
+    
+    // Rotar el matiz aproximadamente 120 grados (un tercio del círculo cromático)
+    // Esto convierte naranja->verde, rojo->azul, azul->naranja, etc.
+    const newR = Math.min(255, Math.floor(b * 0.6 + g * 0.2));
+    const newG = Math.min(255, Math.floor(r * 0.5 + 60));
+    const newB = Math.min(255, Math.floor(g * 0.4 + r * 0.15));
+    
+    return `#${((1 << 24) + (newR << 16) + (newG << 8) + newB).toString(16).slice(1)}`;
+  };
+
+  // Función para verificar si el bot puede ser entrenado
+  const isBotReady = () => {
+    // Validar teléfono y contexto
+    if (!telefonoBot.trim() || !contextoBot.trim()) {
+      return false;
+    }
+
+    // Si hay sucursales, validar que cada una tenga la cantidad mínima
+    if (branches && branches.length > 0) {
+      for (const branch of branches) {
+        const platosEnSucursal = menuTags.filter(tag => tag.branch_id === branch.id);
+        if (platosEnSucursal.length < configuracion.platosMinimos) {
+          return false;
+        }
+      }
+      return true;
+    } else {
+      // Si no hay sucursales, validar el total
+      return menuTags.length >= configuracion.platosMinimos;
+    }
+  };
+
   const cargarSucursales = useCallback(async () => {
     try {
       setCargandoSucursales(true);
       const res = await api.get("/branches");
-      setBranches(res.data);
-      if (res.data.length > 0) {
+      
+      // Asegurar que sea un array
+      const branchesData = Array.isArray(res.data) ? res.data : [];
+      setBranches(branchesData);
+      
+      if (branchesData.length > 0) {
         setNuevoTag((prev) => ({
           ...prev,
-          branch_id: prev.branch_id || String(res.data[0].id),
+          branch_id: prev.branch_id || String(branchesData[0].id),
         }));
       }
     } catch (err) {
@@ -96,6 +175,17 @@ const Dashboard = () => {
 
     const userData = JSON.parse(usuarioGuardado);
     setUsuario(userData);
+
+    // Cargar configuración guardada
+    const configGuardada = localStorage.getItem(`config_${userData.id}`);
+    if (configGuardada) {
+      try {
+        setConfiguracion(JSON.parse(configGuardada));
+      } catch (err) {
+        console.error("Error al cargar configuración:", err);
+      }
+    }
+
     // Obtener estadísticas del restaurante
     const obtenerEstadisticas = async () => {
       try {
@@ -218,6 +308,29 @@ const Dashboard = () => {
   };
 
   const handleEntrenarBot = async () => {
+    // Validar teléfono y contexto
+    if (!telefonoBot.trim() || !contextoBot.trim()) {
+      alert("No se pudo completar el entrenamiento. Verifica que hayas configurado toda la información necesaria.");
+      return;
+    }
+
+    // Validar que cada sucursal tenga al menos la cantidad mínima de platos
+    if (branches && branches.length > 0) {
+      for (const branch of branches) {
+        const platosEnSucursal = menuTags.filter(tag => tag.branch_id === branch.id);
+        if (platosEnSucursal.length < configuracion.platosMinimos) {
+          alert(`No se pudo completar el entrenamiento. La sucursal "${branch.nombre}" necesita al menos ${configuracion.platosMinimos} platos (tiene ${platosEnSucursal.length}).`);
+          return;
+        }
+      }
+    } else {
+      // Si no hay sucursales, validar el total de platos
+      if (menuTags.length < configuracion.platosMinimos) {
+        alert("No se pudo completar el entrenamiento. Verifica que hayas configurado toda la información necesaria.");
+        return;
+      }
+    }
+
     setGuardandoBot(true);
     setMensajeBot("");
     try {
@@ -243,6 +356,88 @@ const Dashboard = () => {
     }
   };
 
+  const handleGuardarTelefono = async () => {
+    setGuardandoTelefono(true);
+    setMensajeBot("");
+    try {
+      await api.post("/bot/train", {
+        contexto: contextoBot,
+        telefono: telefonoBot,
+        menuEntrenamiento: menuTags.map(
+          ({ nombre, precio, branch_id, branch_nombre }) => ({
+            nombre,
+            precio,
+            branch_id,
+            branch_nombre,
+          })
+        ),
+      });
+      setMensajeBot("Teléfono guardado correctamente");
+      setTimeout(() => setMensajeBot(""), 3000);
+    } catch (err) {
+      console.error("Error guardando teléfono:", err);
+      setMensajeBot("Error al guardar el teléfono");
+    } finally {
+      setGuardandoTelefono(false);
+    }
+  };
+
+  const handleGuardarContexto = async () => {
+    setGuardandoContexto(true);
+    setMensajeBot("");
+    try {
+      await api.post("/bot/train", {
+        contexto: contextoBot,
+        telefono: telefonoBot,
+        menuEntrenamiento: menuTags.map(
+          ({ nombre, precio, branch_id, branch_nombre }) => ({
+            nombre,
+            precio,
+            branch_id,
+            branch_nombre,
+          })
+        ),
+      });
+      setMensajeBot("Contexto guardado correctamente");
+      setTimeout(() => setMensajeBot(""), 3000);
+    } catch (err) {
+      console.error("Error guardando contexto:", err);
+      setMensajeBot("Error al guardar el contexto");
+    } finally {
+      setGuardandoContexto(false);
+    }
+  };
+
+  const handleGuardarConfiguracion = async () => {
+    setGuardandoConfiguracion(true);
+    setMensajeConfiguracion("");
+    try {
+      // Por ahora guardamos en localStorage, luego se puede hacer una API
+      localStorage.setItem(`config_${usuario.id}`, JSON.stringify(configuracion));
+      setMensajeConfiguracion("Configuración guardada correctamente");
+      setTimeout(() => setMensajeConfiguracion(""), 3000);
+    } catch (err) {
+      console.error("Error guardando configuración:", err);
+      setMensajeConfiguracion("Error al guardar la configuración");
+    } finally {
+      setGuardandoConfiguracion(false);
+    }
+  };
+
+  const handleImageUpload = (e, tipo) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setConfiguracion(prev => ({
+          ...prev,
+          [tipo === 'logo' ? 'logoUrl' : 'fondoUrl']: reader.result
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   if (!usuario) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -263,14 +458,13 @@ const Dashboard = () => {
       >
         <div className="flex items-center justify-between mb-6">
           <img
-            src={isPizza ? pizzaLogo : logoGuss}
+            src={configuracion.logoUrl || (isPizza ? pizzaLogo : logoGuss)}
             alt="Logo"
             className="w-10 h-10"
           />
           <h2
-            className={`text-2xl font-bold ${
-              isPizza ? "text-red-600" : "text-orange-600"
-            }`}
+            className="text-2xl font-bold"
+            style={{ color: configuracion.colorTema }}
           >
             {isPizza ? "Pizza Palace Admin" : "Gus's Admin"}
           </h2>
@@ -327,7 +521,7 @@ const Dashboard = () => {
       {/* Contenido principal */}
       <div
         className="flex-1 bg-cover bg-center p-6 overflow-y-auto w-full"
-        style={{ backgroundImage: `url(${isPizza ? pizzaBg : bg})` }}
+        style={{ backgroundImage: `url(${configuracion.fondoUrl || (isPizza ? pizzaBg : bg)})` }}
       >
         {/* Topbar móvil */}
         <div className="md:hidden flex justify-between items-center mb-4">
@@ -364,13 +558,20 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-500">Reservas Totales</p>
-                <h2 className="text-3xl font-bold text-orange-600">
+                <h2 
+                  className="text-3xl font-bold"
+                  style={{ color: configuracion.colorTema }}
+                >
                   {estadisticas.total_reservas}
                 </h2>
               </div>
-              <div className="bg-orange-100 p-3 rounded-full">
+              <div 
+                className="p-3 rounded-full"
+                style={{ backgroundColor: hexToRgba(configuracion.colorTema, 0.15) }}
+              >
                 <svg
-                  className="w-8 h-8 text-orange-600"
+                  className="w-8 h-8"
+                  style={{ color: configuracion.colorTema }}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -391,13 +592,20 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-500">Mesas Totales</p>
-                <h2 className="text-3xl font-bold text-orange-600">
+                <h2 
+                  className="text-3xl font-bold"
+                  style={{ color: configuracion.colorTema }}
+                >
                   {estadisticas.total_mesas}
                 </h2>
               </div>
-              <div className="bg-orange-100 p-3 rounded-full">
+              <div 
+                className="p-3 rounded-full"
+                style={{ backgroundColor: hexToRgba(configuracion.colorTema, 0.15) }}
+              >
                 <svg
-                  className="w-8 h-8 text-orange-600"
+                  className="w-8 h-8"
+                  style={{ color: configuracion.colorTema }}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -418,13 +626,20 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-500">Platos en Menú</p>
-                <h2 className="text-3xl font-bold text-orange-600">
+                <h2 
+                  className="text-3xl font-bold"
+                  style={{ color: configuracion.colorTema }}
+                >
                   {estadisticas.total_platos}
                 </h2>
               </div>
-              <div className="bg-orange-100 p-3 rounded-full">
+              <div 
+                className="p-3 rounded-full"
+                style={{ backgroundColor: hexToRgba(configuracion.colorTema, 0.15) }}
+              >
                 <svg
-                  className="w-8 h-8 text-orange-600"
+                  className="w-8 h-8"
+                  style={{ color: configuracion.colorTema }}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -448,19 +663,22 @@ const Dashboard = () => {
           <div className="flex flex-col sm:flex-row gap-4">
             <Link
               to="/menu"
-              className="bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 text-center"
+              style={{ backgroundColor: configuracion.colorTema }}
+              className="text-white px-6 py-3 rounded-lg hover:opacity-90 text-center transition"
             >
               Gestión de Menú
             </Link>
             <Link
               to="/reservas"
-              className="bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 text-center"
+              style={{ backgroundColor: adjustBrightness(configuracion.colorTema, -30) }}
+              className="text-white px-6 py-3 rounded-lg hover:opacity-90 text-center transition"
             >
               Ver Reservas
             </Link>
             <Link
               to="/mesas"
-              className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 text-center"
+              style={{ backgroundColor: getAnalogousColor(configuracion.colorTema) }}
+              className="text-white px-6 py-3 rounded-lg hover:opacity-90 text-center transition"
             >
               Gestionar Mesas
             </Link>
@@ -473,13 +691,6 @@ const Dashboard = () => {
                   Gestiona las ubicaciones donde opera tu restaurante.
                 </p>
               </div>
-              <button
-                onClick={resetBranchForm}
-                className="px-4 py-2 rounded-lg border border-orange-200 text-orange-600 hover:bg-orange-50 text-sm font-medium"
-                type="button"
-              >
-                Nueva sucursal
-              </button>
             </div>
 
             {mensajeSucursal && (
@@ -497,7 +708,7 @@ const Dashboard = () => {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {cargandoSucursales ? (
                 <p className="text-gray-500 col-span-full">Cargando sucursales...</p>
-              ) : branches.length === 0 ? (
+              ) : !branches || branches.length === 0 ? (
                 <p className="text-gray-500 col-span-full">
                   Aún no tienes sucursales registradas.
                 </p>
@@ -602,7 +813,8 @@ const Dashboard = () => {
                 <button
                   type="submit"
                   disabled={guardandoSucursal}
-                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition disabled:opacity-60"
+                  style={{ backgroundColor: configuracion.colorTema }}
+                  className="px-4 py-2 text-white rounded-lg hover:opacity-90 transition disabled:opacity-60"
                 >
                   {guardandoSucursal
                     ? "Guardando..."
@@ -651,11 +863,224 @@ const Dashboard = () => {
           </div>
         </section>
 
+        {/* Configuración del Restaurante */}
+        <section className="bg-white/80 backdrop-blur-lg rounded-xl p-6 shadow-md mt-6">
+          <h3 className="text-xl font-semibold text-gray-800 mb-4">
+            Configuración del Restaurante
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Personaliza la configuración general de tu restaurante.
+          </p>
+
+          {mensajeConfiguracion && (
+            <div className={`mb-4 p-3 rounded ${
+              mensajeConfiguracion.includes("Error") 
+                ? "bg-red-100 text-red-700" 
+                : "bg-green-100 text-green-700"
+            }`}>
+              {mensajeConfiguracion}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Platos mínimos */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Platos mínimos para entrenamiento
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={configuracion.platosMinimos}
+                onChange={(e) => setConfiguracion(prev => ({
+                  ...prev,
+                  platosMinimos: parseInt(e.target.value) || 1
+                }))}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500"
+                placeholder="5"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Cantidad mínima de platos requeridos para activar el bot
+              </p>
+            </div>
+
+            {/* Color del tema */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Color del tema
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={configuracion.colorTema}
+                  onChange={(e) => setConfiguracion(prev => ({
+                    ...prev,
+                    colorTema: e.target.value
+                  }))}
+                  className="w-16 h-10 border border-gray-200 rounded cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={configuracion.colorTema}
+                  onChange={(e) => setConfiguracion(prev => ({
+                    ...prev,
+                    colorTema: e.target.value
+                  }))}
+                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="#ea580c"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Color principal de tu marca
+              </p>
+            </div>
+
+            {/* URL del Logo */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Logo del Restaurante
+              </label>
+              <div className="flex gap-4 items-start">
+                {/* Previsualización del logo */}
+                <div className="flex-shrink-0">
+                  <div className="w-32 h-32 border-2 border-gray-200 rounded-lg overflow-hidden bg-white flex items-center justify-center">
+                    {configuracion.logoUrl ? (
+                      <img 
+                        src={configuracion.logoUrl} 
+                        alt="Logo preview" 
+                        className="max-w-full max-h-full object-contain"
+                      />
+                    ) : (
+                      <span className="text-gray-400 text-xs text-center px-2">Sin logo</span>
+                    )}
+                  </div>
+                </div>
+                {/* Controles */}
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={configuracion.logoUrl}
+                    onChange={(e) => setConfiguracion(prev => ({
+                      ...prev,
+                      logoUrl: e.target.value
+                    }))}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 mb-2"
+                    placeholder="https://ejemplo.com/logo.png o ruta local"
+                  />
+                  <div className="flex gap-2">
+                    <label className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition cursor-pointer text-center text-sm">
+                      📁 Subir imagen
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e, 'logo')}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Logo que aparecerá en el sidebar
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* URL del Fondo */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Imagen de Fondo del Dashboard
+              </label>
+              <div className="flex gap-4 items-start">
+                {/* Previsualización del fondo */}
+                <div className="flex-shrink-0">
+                  <div className="w-48 h-32 border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-100">
+                    {configuracion.fondoUrl ? (
+                      <img 
+                        src={configuracion.fondoUrl} 
+                        alt="Fondo preview" 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                        Sin fondo
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Controles */}
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={configuracion.fondoUrl}
+                    onChange={(e) => setConfiguracion(prev => ({
+                      ...prev,
+                      fondoUrl: e.target.value
+                    }))}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 mb-2"
+                    placeholder="https://ejemplo.com/fondo.jpg o ruta local"
+                  />
+                  <div className="flex gap-2">
+                    <label className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition cursor-pointer text-center text-sm">
+                      📁 Subir imagen
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e, 'fondo')}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Imagen de fondo principal del dashboard
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Botón guardar configuración */}
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={handleGuardarConfiguracion}
+              disabled={guardandoConfiguracion}
+              style={{ backgroundColor: configuracion.colorTema }}
+              className="px-6 py-2 text-white rounded-lg transition disabled:opacity-50 hover:opacity-90"
+            >
+              {guardandoConfiguracion ? "Guardando..." : "Guardar Configuración"}
+            </button>
+          </div>
+        </section>
+
         {/* Entrenamiento del Bot */}
         <section className="bg-white/80 backdrop-blur-lg rounded-xl p-6 shadow-md mt-6">
-          <h3 className="text-xl font-semibold mb-4 text-gray-800">
-            Entrenar Bot de Atención al Cliente
-          </h3>
+          <div className="flex items-center gap-3 mb-4">
+            <h3 className="text-xl font-semibold text-gray-800">
+              Entrenar Bot de Atención al Cliente
+            </h3>
+            {/* Indicador de estado del bot */}
+            <div className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full"
+                style={{
+                  backgroundColor: isBotReady()
+                    ? configuracion.colorTema
+                    : '#9ca3af'
+                }}
+              ></div>
+              <span 
+                className="text-xs font-medium"
+                style={{
+                  color: isBotReady()
+                    ? configuracion.colorTema
+                    : '#6b7280'
+                }}
+              >
+                {isBotReady()
+                  ? 'Activo'
+                  : 'Inactivo'}
+              </span>
+            </div>
+          </div>
           <p className="text-sm text-gray-600 mb-4">
             Proporciona contexto e información sobre tu restaurante para que el bot pueda atender mejor a tus clientes.
           </p>
@@ -675,13 +1100,23 @@ const Dashboard = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Teléfono de contacto (referencia)
               </label>
-              <input
-                type="text"
-                value={telefonoBot}
-                onChange={(e) => setTelefonoBot(e.target.value)}
-                placeholder="+51 999 999 999"
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={telefonoBot}
+                  onChange={(e) => setTelefonoBot(e.target.value)}
+                  placeholder="+591 67505507"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-orange-500"
+                />
+                <button
+                  onClick={handleGuardarTelefono}
+                  disabled={guardandoTelefono}
+                  style={{ backgroundColor: configuracion.colorTema }}
+                  className="px-4 py-2 text-white rounded hover:opacity-90 transition disabled:opacity-50 whitespace-nowrap"
+                >
+                  {guardandoTelefono ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
               <p className="text-xs text-gray-500 mt-1">
                 Este número se usará próximamente para comunicaciones del bot (por ahora es solo informativo).
               </p>
@@ -698,17 +1133,52 @@ const Dashboard = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 min-h-[150px]"
                 rows="6"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Describe tu restaurante, especialidades, horarios, políticas de reserva, etc.
-              </p>
+              <div className="flex justify-between items-center mt-2">
+                <p className="text-xs text-gray-500">
+                  Describe tu restaurante, especialidades, horarios, políticas de reserva, etc.
+                </p>
+                <button
+                  onClick={handleGuardarContexto}
+                  disabled={guardandoContexto}
+                  style={{ backgroundColor: configuracion.colorTema }}
+                  className="px-4 py-2 text-white rounded hover:opacity-90 transition disabled:opacity-50 whitespace-nowrap"
+                >
+                  {guardandoContexto ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-              <h4 className="text-sm font-semibold text-blue-800 mb-2">
-                Platos de referencia para el bot
-              </h4>
+            <div 
+              className="border rounded-xl p-4"
+              style={{ 
+                backgroundColor: hexToRgba(configuracion.colorTema, 0.08),
+                borderColor: hexToRgba(configuracion.colorTema, 0.2)
+              }}
+            >
+              <div className="flex justify-between items-center mb-2">
+                <h4 
+                  className="text-sm font-semibold"
+                  style={{ color: configuracion.colorTema }}
+                >
+                  Platos de referencia para el bot
+                </h4>
+                <button
+                  onClick={() => setShowMenuPopup(true)}
+                  style={{ backgroundColor: configuracion.colorTema }}
+                  className="px-3 py-1 text-white rounded hover:opacity-90 transition flex items-center gap-1"
+                  title="Ver todos los platos"
+                >
+                  <span className="text-lg">☰</span>
+                  <span className="text-xs">Ver todos</span>
+                </button>
+              </div>
               {mensajeTag && (
-                <p className="text-xs text-blue-700 mb-2">{mensajeTag}</p>
+                <p 
+                  className="text-xs mb-2"
+                  style={{ color: configuracion.colorTema }}
+                >
+                  {mensajeTag}
+                </p>
               )}
               <form className="space-y-3" onSubmit={handleAgregarTag}>
                 <input
@@ -717,7 +1187,7 @@ const Dashboard = () => {
                   onChange={(e) =>
                     setNuevoTag((prev) => ({ ...prev, nombre: e.target.value }))
                   }
-                  className="w-full px-3 py-2 border border-blue-100 rounded focus:ring-2 focus:ring-blue-400"
+                  className="w-full px-3 py-2 border border-orange-100 rounded focus:ring-2 focus:ring-orange-400"
                   placeholder="Nombre del plato"
                 />
                 <input
@@ -728,7 +1198,7 @@ const Dashboard = () => {
                   onChange={(e) =>
                     setNuevoTag((prev) => ({ ...prev, precio: e.target.value }))
                   }
-                  className="w-full px-3 py-2 border border-blue-100 rounded focus:ring-2 focus:ring-blue-400"
+                  className="w-full px-3 py-2 border border-orange-100 rounded focus:ring-2 focus:ring-orange-400"
                   placeholder="Precio (Bs)"
                 />
                 <select
@@ -736,15 +1206,15 @@ const Dashboard = () => {
                   onChange={(e) =>
                     setNuevoTag((prev) => ({ ...prev, branch_id: e.target.value }))
                   }
-                  disabled={branches.length === 0}
-                  className="w-full px-3 py-2 border border-blue-100 rounded focus:ring-2 focus:ring-blue-400 disabled:bg-gray-100"
+                  disabled={!branches || branches.length === 0}
+                  className="w-full px-3 py-2 border border-orange-100 rounded focus:ring-2 focus:ring-orange-400 disabled:bg-gray-100"
                 >
                   <option value="">
-                    {branches.length === 0
+                    {!branches || branches.length === 0
                       ? "No hay sucursales disponibles"
                       : "Selecciona una sucursal"}
                   </option>
-                  {branches.map((branch) => (
+                  {branches && branches.map((branch) => (
                     <option key={branch.id} value={branch.id}>
                       {branch.nombre}
                     </option>
@@ -752,29 +1222,37 @@ const Dashboard = () => {
                 </select>
                 <button
                   type="submit"
-                  disabled={branches.length === 0}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50"
+                  disabled={!branches || branches.length === 0}
+                  style={{ backgroundColor: configuracion.colorTema }}
+                  className="w-full px-4 py-2 text-white rounded hover:opacity-90 transition disabled:opacity-50"
                 >
                   Agregar plato
                 </button>
               </form>
               <div className="flex flex-wrap gap-2 mt-4">
-                {menuTags.map((tag) => (
+                {menuTags
+                  .filter(tag => !nuevoTag.branch_id || tag.branch_id === parseInt(nuevoTag.branch_id))
+                  .map((tag) => (
                   <span
                     key={tag.id}
-                    className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs"
+                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs"
+                    style={{ 
+                      backgroundColor: hexToRgba(configuracion.colorTema, 0.15),
+                      color: configuracion.colorTema
+                    }}
                   >
-                    {tag.nombre} · Bs {Number(tag.precio).toFixed(2)} · {tag.branch_nombre}
+                    {tag.nombre} · Bs {Number(tag.precio).toFixed(2)}
                     <button
                       type="button"
-                      className="text-blue-500 hover:text-blue-700"
+                      className="hover:opacity-70"
+                      style={{ color: configuracion.colorTema }}
                       onClick={() => handleEliminarTag(tag.id)}
                     >
                       ×
                     </button>
                   </span>
                 ))}
-                {menuTags.length === 0 && (
+                {(nuevoTag.branch_id ? menuTags.filter(tag => tag.branch_id === parseInt(nuevoTag.branch_id)) : menuTags).length === 0 && (
                   <p className="text-xs text-gray-500">
                     Aún no agregas platos de entrenamiento.
                   </p>
@@ -785,13 +1263,105 @@ const Dashboard = () => {
             <button
               onClick={handleEntrenarBot}
               disabled={guardandoBot}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50"
+              style={{ backgroundColor: configuracion.colorTema }}
+              className="px-4 py-2 text-white rounded hover:opacity-90 transition disabled:opacity-50"
             >
               {guardandoBot ? "Entrenando..." : "Entrenar Bot"}
             </button>
           </div>
         </section>
       </div>
+
+      {/* Popup Modal - Todos los platos */}
+      {showMenuPopup && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            {/* Header */}
+            <div 
+              style={{ backgroundColor: configuracion.colorTema }}
+              className="text-white px-6 py-4 flex justify-between items-center"
+            >
+              <h3 className="text-xl font-bold">Todos los Platos Añadidos</h3>
+              <button
+                onClick={() => setShowMenuPopup(false)}
+                className="text-white hover:opacity-80 rounded-full p-1 transition"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Contenido */}
+            <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
+              {branches && branches.length > 0 ? (
+                branches.map((branch) => {
+                  const platosEnSucursal = menuTags.filter(
+                    (tag) => tag.branch_id === branch.id
+                  );
+                  
+                  if (platosEnSucursal.length === 0) return null;
+
+                  return (
+                    <div key={branch.id} className="mb-6 last:mb-0">
+                      <h4 
+                        className="text-lg font-semibold mb-3 border-b-2 pb-2"
+                        style={{ 
+                          color: configuracion.colorTema,
+                          borderColor: hexToRgba(configuracion.colorTema, 0.3)
+                        }}
+                      >
+                        {branch.nombre}
+                      </h4>
+                      <div className="space-y-2">
+                        {platosEnSucursal.map((tag) => (
+                          <div
+                            key={tag.id}
+                            className="flex justify-between items-center bg-orange-50 p-3 rounded-lg hover:bg-orange-100 transition"
+                          >
+                            <div className="flex-1">
+                              <p className="font-medium text-gray-800">{tag.nombre}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-orange-600 font-semibold">
+                                Bs {Number(tag.precio).toFixed(2)}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  handleEliminarTag(tag.id);
+                                }}
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition"
+                                title="Eliminar plato"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-center text-gray-500 py-8">
+                  No hay platos añadidos todavía
+                </p>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gray-50 px-6 py-4 border-t flex justify-between items-center">
+              <p className="text-sm text-gray-600">
+                Total: {menuTags.length} plato{menuTags.length !== 1 ? 's' : ''}
+              </p>
+              <button
+                onClick={() => setShowMenuPopup(false)}
+                className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,0 +1,50 @@
+# ======================
+# Archivos de entorno
+# ======================
+.env
+.env.* 
+
+# ======================
+# Node.js
+# ======================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ======================
+# Build
+# ======================
+dist/
+build/
+out/
+
+# ======================
+# Logs
+# ======================
+logs/
+*.log
+*.log.*
+
+# ======================
+# Sistema operativo
+# ======================
+.DS_Store
+Thumbs.db
+
+# ======================
+# IDEs y editores
+# ======================
+.vscode/
+.idea/
+
+# ======================
+# Archivos temporales
+# ======================
+*.tmp
+*.temp
+*.swp
+*.swn
+*.swo
+*.bak

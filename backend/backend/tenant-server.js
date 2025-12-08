@@ -24,7 +24,7 @@ const dbConfig = {
   host: process.env.DB_HOST || "localhost",
   port: process.env.DB_PORT || "3306",
   user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "IJgonaldos",
+  password: process.env.DB_PASSWORD || "AlejandraVargas12",
   database: process.env.DB_NAME || "chatbot_reservas",
 };
 
@@ -106,9 +106,8 @@ const verifyToken = async (req, res, next) => {
         token_restaurant_id: tokenRestaurantId,
         ruta: req.path
       });
-      return res.status(403).json({ 
-        error: "Acceso denegado: Este token no pertenece a este restaurante",
-        details: `El token es para el puerto ${tokenPuerto}, pero este servidor está en el puerto ${serverPuerto}`
+      return res.status(401).json({ 
+        error: "No autorizado. Por favor inicia sesión nuevamente."
       });
     }
     
@@ -953,37 +952,24 @@ app.post("/api/mesas/configure", verifyToken, async (req, res) => {
 app.post("/api/bot/train", verifyToken, async (req, res) => {
   try {
     const { contexto, telefono, menuEntrenamiento } = req.body;
-    const contextoFinal = contexto || "";
-    const telefonoFinal =
-      typeof telefono === "string" && telefono.trim().length > 0
-        ? telefono.trim()
-        : null;
-    const menuFinal = Array.isArray(menuEntrenamiento)
-      ? JSON.stringify(menuEntrenamiento)
-      : JSON.stringify([]);
-    const connection = await connectDB();
-
-    // Verificar si existe configuración del bot
-    const [botConfig] = await connection.execute(
-      "SELECT * FROM chatbot_config WHERE restaurant_id = ?",
-      [TENANT_ID]
-    );
-
-    if (botConfig.length === 0) {
-      // Crear configuración del bot si no existe
-      await connection.execute(
-        "INSERT INTO chatbot_config (restaurant_id, contexto_entrenamiento, telefono_contacto, menu_entrenamiento) VALUES (?, ?, ?, ?)",
-        [TENANT_ID, contextoFinal, telefonoFinal, menuFinal]
-      );
-    } else {
-      // Actualizar contexto de entrenamiento
-      await connection.execute(
-        "UPDATE chatbot_config SET contexto_entrenamiento = ?, telefono_contacto = ?, menu_entrenamiento = ? WHERE restaurant_id = ?",
-        [contextoFinal, telefonoFinal, menuFinal, TENANT_ID]
-      );
+    
+    // Guardar en archivo JSON en lugar de DB
+    const configPath = path.join(__dirname, `../chatbot-configs/restaurant_${TENANT_ID}.json`);
+    
+    const botConfig = {
+      contexto: contexto || "",
+      telefono: telefono || "",
+      menuEntrenamiento: Array.isArray(menuEntrenamiento) ? menuEntrenamiento : []
+    };
+    
+    // Crear directorio si no existe
+    const configDir = path.join(__dirname, '../chatbot-configs');
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
     }
-
-    await connection.end();
+    
+    // Guardar configuración en JSON
+    fs.writeFileSync(configPath, JSON.stringify(botConfig, null, 2), 'utf8');
 
     res.json({
       message: "Bot entrenado exitosamente",
@@ -997,26 +983,167 @@ app.post("/api/bot/train", verifyToken, async (req, res) => {
 // Obtener contexto de entrenamiento del bot
 app.get("/api/bot/context", verifyToken, async (req, res) => {
   try {
-    const connection = await connectDB();
-    const [botConfig] = await connection.execute(
-      "SELECT contexto_entrenamiento, telefono_contacto, menu_entrenamiento FROM chatbot_config WHERE restaurant_id = ?",
-      [TENANT_ID]
-    );
-    await connection.end();
+    // Leer configuración desde archivo JSON en lugar de DB
+    const configPath = path.join(__dirname, `../chatbot-configs/restaurant_${TENANT_ID}.json`);
+    
+    let botConfig = {
+      contexto: "",
+      telefono: "",
+      menuEntrenamiento: []
+    };
+    
+    // Intentar leer el archivo si existe
+    if (fs.existsSync(configPath)) {
+      const fileContent = fs.readFileSync(configPath, 'utf8');
+      botConfig = JSON.parse(fileContent);
+    } else {
+      // Si no existe, crear uno por defecto
+      const defaultConfig = {
+        contexto: `Bienvenido a ${TENANT_NAME}. Somos un restaurante que ofrece los mejores platos.`,
+        telefono: "",
+        menuEntrenamiento: []
+      };
+      
+      // Crear directorio si no existe
+      const configDir = path.join(__dirname, '../chatbot-configs');
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+      
+      // Guardar configuración por defecto
+      fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf8');
+      botConfig = defaultConfig;
+    }
 
-    res.json({
-      contexto:
-        botConfig.length > 0 ? botConfig[0].contexto_entrenamiento || "" : "",
-      telefono:
-        botConfig.length > 0 ? botConfig[0].telefono_contacto || "" : "",
-      menuEntrenamiento:
-        botConfig.length > 0 && botConfig[0].menu_entrenamiento
-          ? JSON.parse(botConfig[0].menu_entrenamiento)
-          : [],
-    });
+    res.json(botConfig);
   } catch (error) {
     console.error("Error obteniendo contexto:", error);
     res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// Endpoint para chat conversacional simple
+app.post("/api/chat", async (req, res) => {
+  try {
+    // Aceptar formato del frontend (message) o de WhatsApp (text)
+    const userMessage = req.body.message || req.body.text;
+    const fromNumber = req.body.number; // Para WhatsApp
+    
+    if (!userMessage || !userMessage.trim()) {
+      return res.status(400).json({ error: "El mensaje no puede estar vacío" });
+    }
+
+    console.log(`📩 Mensaje recibido${fromNumber ? ` de ${fromNumber}` : ''}: ${userMessage}`);
+
+    // Leer configuración del bot
+    const configPath = path.join(__dirname, `../chatbot-configs/restaurant_${TENANT_ID}.json`);
+    
+    let botConfig = {
+      contexto: `Bienvenido a ${TENANT_NAME}. ¿En qué puedo ayudarte?`,
+      telefono: "",
+      menuEntrenamiento: []
+    };
+    
+    // Cargar configuración si existe
+    if (fs.existsSync(configPath)) {
+      const fileContent = fs.readFileSync(configPath, 'utf8');
+      botConfig = JSON.parse(fileContent);
+    }
+
+    // Normalizar mensaje del usuario
+    const normalizedMessage = userMessage.toLowerCase().trim();
+    
+    // Respuestas basadas en el contexto y menú entrenado
+    let response = "";
+    
+    // Saludos
+    if (normalizedMessage.match(/^(hola|buenos dias|buenas tardes|buenas noches|hey|hi)/)) {
+      response = `¡Hola! ${botConfig.contexto || `Bienvenido a ${TENANT_NAME}`}\n\n¿En qué puedo ayudarte hoy?`;
+    }
+    // Consulta de menú/platos
+    else if (normalizedMessage.includes("menu") || normalizedMessage.includes("platos") || normalizedMessage.includes("comida") || normalizedMessage.includes("que tienen")) {
+      if (botConfig.menuEntrenamiento && botConfig.menuEntrenamiento.length > 0) {
+        response = "📋 Estos son nuestros platos disponibles:\n\n";
+        botConfig.menuEntrenamiento.forEach((plato, index) => {
+          response += `${index + 1}. ${plato.nombre} - Bs. ${plato.precio}\n`;
+          if (plato.descripcion) {
+            response += `   ${plato.descripcion}\n`;
+          }
+        });
+        response += "\n¿Te gustaría saber más sobre algún plato en particular?";
+      } else {
+        response = "En este momento estamos actualizando nuestro menú. Por favor contáctanos para conocer nuestros platos disponibles.";
+        if (botConfig.telefono) {
+          response += `\n\nTeléfono: ${botConfig.telefono}`;
+        }
+      }
+    }
+    // Consulta de precios
+    else if (normalizedMessage.includes("precio") || normalizedMessage.includes("costo") || normalizedMessage.includes("cuanto cuesta")) {
+      if (botConfig.menuEntrenamiento && botConfig.menuEntrenamiento.length > 0) {
+        response = "💰 Precios de nuestros platos:\n\n";
+        botConfig.menuEntrenamiento.forEach((plato) => {
+          response += `• ${plato.nombre}: Bs. ${plato.precio}\n`;
+        });
+      } else {
+        response = "Para información sobre precios, por favor contáctanos directamente.";
+        if (botConfig.telefono) {
+          response += `\n\nTeléfono: ${botConfig.telefono}`;
+        }
+      }
+    }
+    // Consulta de contacto/teléfono
+    else if (normalizedMessage.includes("telefono") || normalizedMessage.includes("contacto") || normalizedMessage.includes("llamar")) {
+      if (botConfig.telefono) {
+        response = `📞 Puedes contactarnos al: ${botConfig.telefono}\n\n¿Hay algo más en lo que pueda ayudarte?`;
+      } else {
+        response = "En este momento no tengo un número de contacto disponible. Por favor visítanos directamente.";
+      }
+    }
+    // Horarios
+    else if (normalizedMessage.includes("horario") || normalizedMessage.includes("abierto") || normalizedMessage.includes("abren") || normalizedMessage.includes("cierran")) {
+      response = "Nuestros horarios de atención varían según la sucursal. Por favor contáctanos para conocer los horarios específicos.";
+      if (botConfig.telefono) {
+        response += `\n\nTeléfono: ${botConfig.telefono}`;
+      }
+    }
+    // Despedidas
+    else if (normalizedMessage.match(/^(adios|chao|hasta luego|bye|gracias)/)) {
+      response = `¡Gracias por contactarnos! Fue un placer atenderte. ¡Hasta pronto! 👋`;
+    }
+    // Búsqueda de plato específico
+    else {
+      // Intentar buscar si menciona algún plato del menú
+      const platoEncontrado = botConfig.menuEntrenamiento.find(plato => 
+        normalizedMessage.includes(plato.nombre.toLowerCase())
+      );
+      
+      if (platoEncontrado) {
+        response = `🍽️ ${platoEncontrado.nombre}\n`;
+        response += `Precio: Bs. ${platoEncontrado.precio}\n`;
+        if (platoEncontrado.descripcion) {
+          response += `\n${platoEncontrado.descripcion}\n`;
+        }
+        response += "\n¿Te gustaría ordenar este plato o saber más sobre otros?";
+      } else {
+        // Respuesta por defecto
+        response = `${botConfig.contexto}\n\nPuedo ayudarte con:\n`;
+        response += "• Ver el menú y precios\n";
+        response += "• Información de contacto\n";
+        response += "• Horarios de atención\n\n";
+        response += "¿Qué te gustaría saber?";
+      }
+    }
+
+    console.log(`📤 Respuesta enviada: ${response.substring(0, 100)}...`);
+    res.json({ response });
+
+  } catch (error) {
+    console.error("❌ Error en chat:", error);
+    res.status(500).json({ 
+      error: "Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.",
+      response: "Disculpa, tuve un problema técnico. Por favor intenta nuevamente." 
+    });
   }
 });
 
@@ -1247,17 +1374,20 @@ app.get("/api/whatsapp/restaurant", async (req, res) => {
       return res.status(404).json({ error: "Restaurante no encontrado" });
     }
 
-    // Obtener configuración del bot
-    const [botConfig] = await connection.execute(
-      "SELECT * FROM chatbot_config WHERE restaurant_id = ?",
-      [TENANT_ID]
-    );
+    // Obtener configuración del bot desde archivo JSON
+    const configPath = path.join(__dirname, `../chatbot-configs/restaurant_${TENANT_ID}.json`);
+    let botConfig = null;
+    
+    if (fs.existsSync(configPath)) {
+      const fileContent = fs.readFileSync(configPath, 'utf8');
+      botConfig = JSON.parse(fileContent);
+    }
 
     await connection.end();
     
     res.json({
       restaurant: restaurants[0],
-      bot: botConfig[0] || null
+      bot: botConfig
     });
   } catch (error) {
     console.error("Error obteniendo información del restaurante:", error);
