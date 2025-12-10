@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import restaurantImage from "../../assets/image.png";
 import { getRestaurantLogo } from "../utils/restaurantLogos";
 
@@ -7,9 +8,45 @@ import { getRestaurantLogo } from "../utils/restaurantLogos";
 const logoMesaCloud = "/logo-guss.png"; // temporal hasta que subas el logo correcto
 
 const Home = () => {
+  const navigate = useNavigate();
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [user, setUser] = useState(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  
+  useEffect(() => {
+    // Cargar datos del usuario si está logueado
+    const loadUser = () => {
+      const usuario = localStorage.getItem("usuario");
+      if (usuario) {
+        try {
+          setUser(JSON.parse(usuario));
+        } catch (e) {
+          console.error("Error parseando usuario:", e);
+        }
+      } else {
+        setUser(null);
+      }
+    };
+    
+    loadUser();
+    
+    // Escuchar cambios en localStorage
+    const handleStorageChange = () => {
+      loadUser();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // También verificar periódicamente (por si el cambio fue en la misma ventana)
+    const interval = setInterval(loadUser, 1000);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     // Cargar restaurantes desde el backend
@@ -78,17 +115,121 @@ const Home = () => {
             <span className="text-2xl font-bold text-gray-800">MesaCloud</span>
           </div>
           <nav className="flex items-center space-x-4">
+            {(() => {
+              const token = localStorage.getItem("token");
+              const usuario = localStorage.getItem("usuario");
+              if (token && usuario) {
+                try {
+                  const userData = JSON.parse(usuario);
+                  const profilePhoto = userData.profile_photo 
+                    ? `http://localhost:3000${userData.profile_photo}` 
+                    : null;
+                  
+                  return (
+                    <>
+                      <Link
+                        to="/restaurant-register"
+                        className="px-4 py-2 border border-orange-500 text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition"
+                      >
+                        Registrar Restaurante
+                      </Link>
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowUserMenu(!showUserMenu)}
+                          className="flex items-center space-x-2 hover:opacity-80 transition cursor-pointer focus:outline-none"
+                        >
+                          <div className="w-10 h-10 rounded-full border-2 border-orange-500 overflow-hidden bg-gray-200 flex items-center justify-center">
+                            {profilePhoto ? (
+                              <img
+                                src={profilePhoto}
+                                alt={userData.full_name || "Usuario"}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextElementSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div 
+                              className="w-full h-full flex items-center justify-center text-orange-500 font-bold text-lg"
+                              style={{ display: profilePhoto ? 'none' : 'flex' }}
+                            >
+                              {userData.full_name ? userData.full_name.charAt(0).toUpperCase() : 'U'}
+                            </div>
+                          </div>
+                          <span className="text-sm font-medium text-gray-700 hidden md:block">
+                            {userData.full_name || "Usuario"}
+                          </span>
+                          <svg 
+                            className={`w-4 h-4 text-gray-600 transition-transform ${showUserMenu ? 'rotate-180' : ''}`}
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        
+                        {/* Menú desplegable */}
+                        {showUserMenu && (
+                          <>
+                            {/* Overlay para cerrar el menú al hacer clic fuera */}
+                            <div 
+                              className="fixed inset-0 z-40"
+                              onClick={() => setShowUserMenu(false)}
+                            ></div>
+                            
+                            {/* Menú */}
+                            <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden">
+                              <div className="p-3 border-b border-gray-200">
+                                <p className="font-semibold text-gray-800">{userData.full_name || "Usuario"}</p>
+                                <p className="text-xs text-gray-500 truncate">{userData.email}</p>
+                              </div>
+                              
+                              <div className="py-1">
             <Link
-              to="/restaurants"
-              className="text-gray-600 hover:text-orange-600 font-medium transition"
+                                  to="/profile"
+                                  onClick={() => setShowUserMenu(false)}
+                                  className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 transition"
             >
-              Mis Restaurantes
+                                  <svg className="w-5 h-5 mr-3 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                  </svg>
+                                  Editar Perfil
             </Link>
+                                
+                                <button
+                                  onClick={() => {
+                                    localStorage.removeItem("token");
+                                    localStorage.removeItem("usuario");
+                                    setShowUserMenu(false);
+                                    window.location.href = "/";
+                                  }}
+                                  className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
+                                >
+                                  <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                  </svg>
+                                  Cerrar Sesión
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  );
+                } catch (e) {
+                  // Si hay error parseando, mostrar botones normales
+                }
+              }
+              return (
+                <>
             <Link
               to="/register"
               className="px-4 py-2 border border-orange-500 text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition"
             >
-              Registrar
+                    Registrarse
             </Link>
             <Link
               to="/login"
@@ -96,6 +237,9 @@ const Home = () => {
             >
               Iniciar Sesión
             </Link>
+                </>
+              );
+            })()}
           </nav>
         </div>
       </header>
@@ -111,10 +255,21 @@ const Home = () => {
             <p className="text-xl text-gray-600">
               Gestiona las reservas de tu restaurante de forma fácil y segura.
             </p>
-            <p className="text-2xl font-bold text-orange-600">
-              14 Días Gratis.
-            </p>
             <div className="flex items-center space-x-3">
+              {(() => {
+                const token = localStorage.getItem("token");
+                if (token) {
+                  return (
+                    <Link
+                      to="/restaurant-register"
+                      className="px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold text-lg hover:bg-orange-600 transition shadow-lg"
+                    >
+                      REGISTRAR RESTAURANTE
+                    </Link>
+                  );
+                }
+                return (
+                  <>
               <Link
                 to="/login"
                 className="px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold text-lg hover:bg-orange-600 transition shadow-lg"
@@ -127,6 +282,9 @@ const Home = () => {
               >
                 REGISTRARSE
               </Link>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -137,6 +295,46 @@ const Home = () => {
               alt="Restaurante"
               className="rounded-lg shadow-2xl w-full max-w-md object-cover"
             />
+          </div>
+        </div>
+      </section>
+
+      {/* Sección: Descripción del Servicio */}
+      <section className="bg-white py-16">
+        <div className="container mx-auto px-4">
+          <div className="max-w-4xl mx-auto text-center">
+            <h2 className="text-3xl font-bold text-gray-900 mb-6">
+              Sistema de Gestión de Reservas con Chatbot
+            </h2>
+            <p className="text-lg text-gray-600 mb-8">
+              Nuestro servicio revoluciona la gestión de reservas para restaurantes mediante 
+              un sistema inteligente basado en chatbot. Los clientes pueden realizar reservas 
+              de manera fácil y rápida a través de conversaciones naturales, mientras que los 
+              restaurantes tienen control total sobre su disponibilidad, menú y mesas.
+            </p>
+            <div className="grid md:grid-cols-3 gap-6 mt-12">
+              <div className="p-6 bg-orange-50 rounded-lg">
+                <div className="text-4xl mb-4">🤖</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Chatbot Inteligente</h3>
+                <p className="text-gray-600">
+                  Interfaz conversacional que permite a los clientes hacer reservas de forma natural
+                </p>
+              </div>
+              <div className="p-6 bg-orange-50 rounded-lg">
+                <div className="text-4xl mb-4">📅</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Gestión de Reservas</h3>
+                <p className="text-gray-600">
+                  Control completo sobre disponibilidad, mesas y horarios de tu restaurante
+                </p>
+              </div>
+              <div className="p-6 bg-orange-50 rounded-lg">
+                <div className="text-4xl mb-4">🎯</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Fácil de Usar</h3>
+                <p className="text-gray-600">
+                  Sistema intuitivo que puedes entrenar y personalizar según las necesidades de tu negocio
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>

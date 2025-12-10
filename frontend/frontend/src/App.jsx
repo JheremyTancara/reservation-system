@@ -14,6 +14,8 @@ import Register from "./pages/Register";
 import Reservas from "./pages/Reservas";
 import ResetPassword from "./pages/ResetPassword";
 import Restaurants from "./pages/Restaurants";
+import UserProfile from "./pages/UserProfile";
+import RestaurantRegister from "./pages/RestaurantRegister";
 
 function App() {
   const [currentPort, setCurrentPort] = useState(null);
@@ -41,6 +43,8 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/restaurants" element={<Restaurants />} />
             <Route path="/admin" element={<AdminPanel />} />
+            <Route path="/profile" element={<UserProfile />} />
+            <Route path="/restaurant-register" element={<RestaurantRegister />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
             <Route path="/master" element={<MasterDashboard />} />

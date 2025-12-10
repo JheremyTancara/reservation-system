@@ -7,7 +7,7 @@ import { Swiper, SwiperSlide } from "swiper/react";
 import comida1 from "../../assets/comida1.jpg";
 import comida2 from "../../assets/comida2.jpg";
 import comida3 from "../../assets/comida3.jpg";
-import { loginUsuario } from "../services/userService";
+import { loginUsuario, loginRestaurante } from "../services/userService";
 
 const Login = () => {
   const [emailOrName, setEmailOrName] = useState("");
@@ -40,29 +40,47 @@ const Login = () => {
 
     try {
       // Obtener puerto actual ANTES de hacer la petición
-      const currentPort = window.location.port || "";
+      const currentPort = window.location.port || "5173";
       const currentPortStr = String(currentPort).trim();
+      const isMainPort = currentPortStr === "5173" || currentPortStr === "5174";
+      const isRestaurantPort = parseInt(currentPortStr) >= 3001;
       
       console.log("🔍 Puerto actual detectado:", currentPortStr);
-      console.log("🔍 URL completa:", window.location.href);
+      console.log("🔍 Es puerto principal:", isMainPort);
+      console.log("🔍 Es puerto de restaurante:", isRestaurantPort);
       
+      let res;
+      
+      // Si es puerto principal (5173), usar login de usuarios regulares
+      if (isMainPort) {
+        const loginData = { 
+          email: trimmedEmailOrName, 
+          password: trimmedPassword
+        };
+        
+        res = await loginUsuario(loginData);
+        
+        // Guardar datos del usuario
+        localStorage.setItem("usuario", JSON.stringify(res.data.user));
+        localStorage.setItem("token", res.data.token);
+        setMensaje("Inicio de sesión exitoso");
+        
+        // Redirigir a la página principal (localhost:5173)
+        setTimeout(() => {
+          window.location.href = "http://localhost:5173/";
+        }, 1000);
+        return;
+      }
+      
+      // Si es puerto de restaurante (3001+), usar login de restaurante
+      if (isRestaurantPort) {
       const loginData = { 
         emailOrName: trimmedEmailOrName, 
         password: trimmedPassword,
-        puerto: currentPortStr // Enviar puerto actual en la petición
+          puerto: currentPortStr
       };
       
-      console.log("🔐 Intentando login con:", { 
-        emailOrName: trimmedEmailOrName, 
-        passwordLength: trimmedPassword.length,
-        puerto: currentPortStr,
-        loginDataKeys: Object.keys(loginData),
-        loginData: { ...loginData, password: "***" }
-      });
-      
-      console.log("📤 JSON.stringify del loginData:", JSON.stringify(loginData));
-      
-      const res = await loginUsuario(loginData);
+        res = await loginRestaurante(loginData);
       
       console.log("==========================================");
       console.log("✅ RESPUESTA COMPLETA DEL SERVIDOR:");
@@ -119,13 +137,20 @@ const Login = () => {
         alert(`Redirigiendo a: ${targetUrl}`); // Para confirmar la URL
         window.location.replace(targetUrl);
       }, 1500);
+      }
     } catch (err) {
       console.error("❌ Error completo en login:", err);
       console.error("❌ Error response:", err.response?.data);
       console.error("❌ Error status:", err.response?.status);
+      console.error("❌ Error URL:", err.config?.url);
       
       // Obtener mensaje de error del servidor
-      const errorMsg = err.response?.data?.error || err.message || "Error al iniciar sesión";
+      let errorMsg = err.response?.data?.error || err.message || "Error al iniciar sesión";
+      
+      // Si es un error 404, dar un mensaje más específico
+      if (err.response?.status === 404) {
+        errorMsg = "El servidor no está respondiendo. Por favor, verifica que el servidor esté corriendo en el puerto 3000.";
+      }
       
       // Si es un error 403 (acceso denegado), mostrar el mensaje completo
       if (err.response?.status === 403) {
@@ -204,11 +229,23 @@ const Login = () => {
             >
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nombre o Correo Electrónico
+                  {(() => {
+                    const currentPort = window.location.port || "5173";
+                    const isMainPort = currentPort === "5173" || currentPort === "5174";
+                    return isMainPort ? "Correo Electrónico" : "Nombre o Correo Electrónico";
+                  })()}
                 </label>
                 <input
-                  type="text"
-                  placeholder="Nombre del restaurante o email"
+                  type={(() => {
+                    const currentPort = window.location.port || "5173";
+                    const isMainPort = currentPort === "5173" || currentPort === "5174";
+                    return isMainPort ? "email" : "text";
+                  })()}
+                  placeholder={(() => {
+                    const currentPort = window.location.port || "5173";
+                    const isMainPort = currentPort === "5173" || currentPort === "5174";
+                    return isMainPort ? "usuario@correo.com" : "Nombre del restaurante o email";
+                  })()}
                   value={emailOrName}
                   onChange={(e) => {
                     setEmailOrName(e.target.value);

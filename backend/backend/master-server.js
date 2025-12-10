@@ -9,11 +9,23 @@ const path = require("path");
 const app = express();
 const PORT = 3000;
 
-// Middleware
-app.use(cors());
+// Middleware CORS con configuración más permisiva
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // Middleware para logging de requests (antes de parsear)
 app.use((req, res, next) => {
+  // Log todas las peticiones a /api/saas-users
+  if (req.path.startsWith('/api/saas-users')) {
+    console.log("=".repeat(60));
+    console.log(`📥 REQUEST: ${req.method} ${req.path}`);
+    console.log("📦 Headers:", req.headers);
+    console.log("=".repeat(60));
+  }
   if (req.path === '/api/auth/login') {
     console.log("🔍 REQUEST LOGIN - Path:", req.path);
     console.log("🔍 REQUEST LOGIN - Method:", req.method);
@@ -27,6 +39,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Middleware para logging después de parsear
 app.use((req, res, next) => {
+  if (req.path.startsWith('/api/saas-users')) {
+    console.log("📦 Body después de parsear:", req.body);
+  }
   if (req.path === '/api/auth/login') {
     console.log("🔍 DESPUÉS DE PARSEAR - req.body:", req.body);
     console.log("🔍 DESPUÉS DE PARSEAR - req.body keys:", req.body ? Object.keys(req.body) : "null");
@@ -41,6 +56,8 @@ const authRoutes = require("./routes/auth");
 const dashboardRoutes = require("./routes/dashboard");
 const configRoutes = require("./routes/config");
 const uploadRestaurantRoutes = require("./routes/upload-restaurant");
+const saasUsersRoutes = require("./routes/saas-users");
+const subscriptionsRoutes = require("./routes/subscriptions");
 
 // Configuración de la base de datos
 const dbConfig = {
@@ -59,6 +76,14 @@ app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/config", configRoutes);
 app.use("/api/upload-restaurant", uploadRestaurantRoutes);
+app.use("/api/saas-users", saasUsersRoutes);
+app.use("/api/subscriptions", subscriptionsRoutes);
+
+// Log para verificar que las rutas se registraron
+console.log("✅ Rutas registradas:");
+console.log("  - /api/auth");
+console.log("  - /api/saas-users");
+console.log("  - /api/subscriptions");
 
 // Función para conectar a la base de datos
 async function connectDB() {
@@ -81,51 +106,24 @@ function generateSubdomain(restaurantName) {
     .replace(/^-|-$/g, "");
 }
 
-// Función para obtener el siguiente puerto disponible (empezando desde 3003)
+// Función para obtener el siguiente puerto disponible (empezando desde 3001)
+// Nota: calculamos solo en base a los restaurantes existentes para evitar “saltar” puertos
 async function getNextAvailablePort() {
   const connection = await connectDB();
   try {
-    const [rows] = await connection.execute(
-      "SELECT * FROM port_manager WHERE id = 1"
-    );
-    
-    // Obtener todos los puertos ocupados de restaurantes existentes
     const [existingRestaurants] = await connection.execute(
       "SELECT puerto FROM restaurants WHERE puerto IS NOT NULL"
     );
-    
-    const allOccupiedPorts = new Set();
-    existingRestaurants.forEach(r => {
-      if (r.puerto) allOccupiedPorts.add(r.puerto);
+
+    const occupied = new Set();
+    existingRestaurants.forEach((r) => {
+      if (r.puerto) occupied.add(r.puerto);
     });
 
-    if (rows.length > 0) {
-      const portManager = rows[0];
-      let occupiedPorts = [];
-      try {
-        const portsData = portManager.puertos_ocupados;
-        if (portsData) {
-          occupiedPorts = typeof portsData === 'string' ? JSON.parse(portsData) : portsData;
-        }
-      } catch (e) {
-        occupiedPorts = [];
-      }
-      occupiedPorts.forEach(p => allOccupiedPorts.add(p));
-    }
-
-    // Encontrar el siguiente puerto disponible desde 3003
-    let nextPort = 3003;
-    while (allOccupiedPorts.has(nextPort)) {
+    let nextPort = 3001;
+    while (occupied.has(nextPort)) {
       nextPort++;
     }
-
-    // Actualizar el port manager
-    allOccupiedPorts.add(nextPort);
-    const updatedPorts = Array.from(allOccupiedPorts);
-    await connection.execute(
-      "UPDATE port_manager SET puerto_actual = ?, puertos_ocupados = ? WHERE id = 1",
-      [nextPort, JSON.stringify(updatedPorts)]
-    );
 
     return nextPort;
   } finally {
@@ -223,6 +221,11 @@ app.get("/api/test", (req, res) => {
   res.json({ message: "Backend funcionando correctamente", timestamp: new Date() });
 });
 
+// Ruta de prueba para saas-users
+app.get("/api/saas-users/test", (req, res) => {
+  res.json({ message: "Ruta saas-users funcionando correctamente", timestamp: new Date() });
+});
+
 // 1. Crear nuevo restaurante
 app.post("/api/restaurants", async (req, res) => {
   try {
@@ -308,7 +311,12 @@ app.get("/api/restaurants", async (req, res) => {
   try {
     const connection = await connectDB();
     const [restaurants] = await connection.execute(
-      "SELECT id, nombre, email, telefono, direccion, puerto, subdominio, activo, created_at FROM restaurants"
+      `SELECT r.id, r.nombre, r.email, r.telefono, r.direccion, r.puerto, r.subdominio, r.activo, 
+              r.created_at, r.subscription_status, r.user_id, r.payment_proof_path, r.logo_path, 
+              r.cover_path, r.last_updated, r.admin_notes,
+              u.email as user_email, u.full_name as user_name
+       FROM restaurants r
+       LEFT JOIN users u ON r.user_id = u.id`
     );
 
     // Agregar información de estado de las instancias
@@ -316,6 +324,7 @@ app.get("/api/restaurants", async (req, res) => {
       ...restaurant,
       instanceActive: activeInstances.has(restaurant.id),
       url: `http://${restaurant.subdominio}.localhost:${restaurant.puerto}`,
+      subscription_status: restaurant.subscription_status || 'active', // Por defecto 'active' para restaurantes antiguos
     }));
 
     await connection.end();

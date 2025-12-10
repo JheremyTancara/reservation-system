@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { registrarUsuario } from "../services/userService";
+import { registrarUsuario, registrarRestaurante } from "../services/userService";
 import comida1 from "../../assets/comida1.jpg";
 import comida2 from "../../assets/comida2.jpg";
 import comida3 from "../../assets/comida3.jpg";
@@ -15,6 +15,8 @@ const initialState = {
   password: "",
   telefono: "",
   direccion: "",
+  full_name: "",
+  phone: "",
 };
 
 const Register = () => {
@@ -34,35 +36,72 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMensaje("");
-    setError("");
+    setError();
 
-    if (!formData.nombre.trim() || !formData.email.trim() || !formData.password.trim()) {
-      setError("Nombre, email y contraseña son obligatorios");
-      return;
-    }
+    // Detectar tipo de registro según el puerto
+    const currentPort = window.location.port || "5173";
+    const isMainPort = currentPort === "5173" || currentPort === "5174";
+    const isRestaurantPort = parseInt(currentPort) >= 3001;
 
-    try {
-      setLoading(true);
-      await registrarUsuario({
-        nombre: formData.nombre.trim(),
-        email: formData.email.trim(),
-        password: formData.password,
-        telefono: formData.telefono.trim() || null,
-        direccion: formData.direccion.trim() || null,
-      });
+    if (isMainPort) {
+      // Registro de usuario regular
+      if (!formData.email.trim() || !formData.password.trim() || !formData.full_name.trim()) {
+        setError("Email, contraseña y nombre completo son obligatorios");
+        return;
+      }
 
-      setMensaje("Registro exitoso. Redirigiendo al login…");
-      setFormData(initialState);
+      try {
+        setLoading(true);
+        await registrarUsuario({
+          email: formData.email.trim(),
+          password: formData.password,
+          full_name: formData.full_name.trim(),
+          phone: formData.phone.trim() || null,
+        });
 
-      setTimeout(() => {
-        navigate("/login");
-      }, 2000);
-    } catch (err) {
-      console.error("Error registrando usuario:", err);
-      const msg = err.response?.data?.error || err.message || "No se pudo completar el registro";
-      setError(msg);
-    } finally {
-      setLoading(false);
+        setMensaje("Registro exitoso. Redirigiendo al login…");
+        setFormData(initialState);
+
+        setTimeout(() => {
+          navigate("/login");
+        }, 2000);
+      } catch (err) {
+        console.error("Error registrando usuario:", err);
+        const msg = err.response?.data?.error || err.message || "No se pudo completar el registro";
+        setError(msg);
+      } finally {
+        setLoading(false);
+      }
+    } else if (isRestaurantPort) {
+      // Registro de restaurante
+      if (!formData.nombre.trim() || !formData.email.trim() || !formData.password.trim()) {
+        setError("Nombre, email y contraseña son obligatorios");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        await registrarRestaurante({
+          nombre: formData.nombre.trim(),
+          email: formData.email.trim(),
+          password: formData.password,
+          telefono: formData.telefono.trim() || null,
+          direccion: formData.direccion.trim() || null,
+        });
+
+        setMensaje("Registro exitoso. Redirigiendo al login…");
+        setFormData(initialState);
+
+        setTimeout(() => {
+          navigate("/login");
+        }, 2000);
+      } catch (err) {
+        console.error("Error registrando restaurante:", err);
+        const msg = err.response?.data?.error || err.message || "No se pudo completar el registro";
+        setError(msg);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -106,7 +145,13 @@ const Register = () => {
           <div className="bg-white/90 backdrop-blur p-8 rounded-xl shadow-lg">
             <h2 className="text-3xl font-bold mb-2 text-gray-800">Crear cuenta</h2>
             <p className="text-gray-500 text-sm mb-6">
-              Registra tu restaurante para comenzar a gestionar reservas, menú y mesas.
+              {(() => {
+                const currentPort = window.location.port || "5173";
+                const isMainPort = currentPort === "5173" || currentPort === "5174";
+                return isMainPort 
+                  ? "Crea tu cuenta de usuario para acceder a nuestros servicios."
+                  : "Registra tu restaurante para comenzar a gestionar reservas, menú y mesas.";
+              })()}
             </p>
 
             {mensaje && (
@@ -121,29 +166,79 @@ const Register = () => {
             )}
 
             <form className="space-y-4" onSubmit={handleSubmit} noValidate>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del restaurante *</label>
-                <input
-                  type="text"
-                  name="nombre"
-                  value={formData.nombre}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="Ej: Guss Restobar"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Correo electrónico *</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="restaurante@correo.com"
-                />
-              </div>
+              {(() => {
+                const currentPort = window.location.port || "5173";
+                const isMainPort = currentPort === "5173" || currentPort === "5174";
+                
+                if (isMainPort) {
+                  // Formulario para usuarios regulares
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Nombre completo *</label>
+                        <input
+                          type="text"
+                          name="full_name"
+                          value={formData.full_name}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Ej: Juan Pérez"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Correo electrónico *</label>
+                        <input
+                          type="email"
+                          name="email"
+                          value={formData.email}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="usuario@correo.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
+                        <input
+                          type="tel"
+                          name="phone"
+                          value={formData.phone}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="+51 999 999 999"
+                        />
+                      </div>
+                    </>
+                  );
+                } else {
+                  // Formulario para restaurantes
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del restaurante *</label>
+                        <input
+                          type="text"
+                          name="nombre"
+                          value={formData.nombre}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Ej: Guss Restobar"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Correo electrónico *</label>
+                        <input
+                          type="email"
+                          name="email"
+                          value={formData.email}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="restaurante@correo.com"
+                        />
+                      </div>
+                    </>
+                  );
+                }
+              })()}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña *</label>
@@ -169,29 +264,41 @@ const Register = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
-                <input
-                  type="tel"
-                  name="telefono"
-                  value={formData.telefono}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="+51 999 999 999"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Dirección</label>
-                <input
-                  type="text"
-                  name="direccion"
-                  value={formData.direccion}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="Av. Siempre Viva 742"
-                />
-              </div>
+              {(() => {
+                const currentPort = window.location.port || "5173";
+                const isMainPort = currentPort === "5173" || currentPort === "5174";
+                
+                if (!isMainPort) {
+                  // Solo mostrar estos campos para restaurantes
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
+                        <input
+                          type="tel"
+                          name="telefono"
+                          value={formData.telefono}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="+51 999 999 999"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Dirección</label>
+                        <input
+                          type="text"
+                          name="direccion"
+                          value={formData.direccion}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Av. Siempre Viva 742"
+                        />
+                      </div>
+                    </>
+                  );
+                }
+                return null;
+              })()}
 
               <button
                 type="submit"

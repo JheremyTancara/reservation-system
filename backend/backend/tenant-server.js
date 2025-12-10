@@ -141,6 +141,99 @@ app.get("/", (req, res) => {
   });
 });
 
+// Ruta de login para el tenant
+app.post("/api/auth/login", async (req, res) => {
+  let connection;
+  try {
+    const { emailOrName, password } = req.body;
+
+    if (!emailOrName || !password) {
+      return res.status(400).json({ error: "Email y password son requeridos" });
+    }
+
+    connection = await connectDB();
+
+    // Buscar restaurante por email o nombre
+    const [users] = await connection.execute(
+      "SELECT * FROM restaurants WHERE (LOWER(email) = LOWER(?) OR LOWER(nombre) = LOWER(?)) AND activo = true AND id = ?",
+      [emailOrName, emailOrName, TENANT_ID]
+    );
+
+    if (users.length === 0) {
+      await connection.end();
+      return res.status(401).json({ 
+        error: "Credenciales inválidas" 
+      });
+    }
+
+    const user = users[0];
+
+    // Verificar password (texto plano o bcrypt)
+    let passwordMatch = false;
+    if (user.password) {
+      // Intentar comparar como texto plano primero
+      if (password === user.password) {
+        passwordMatch = true;
+      } else {
+        // Si no coincide, intentar con bcrypt
+        try {
+          const bcrypt = require("bcrypt");
+          passwordMatch = await bcrypt.compare(password, user.password);
+        } catch (e) {
+          // Si bcrypt falla, asumir que no coincide
+          passwordMatch = false;
+        }
+      }
+    }
+
+    if (!passwordMatch) {
+      await connection.end();
+      return res.status(401).json({ error: "Credenciales inválidas" });
+    }
+
+    // Generar token JWT con el puerto del tenant
+    const token = jwt.sign(
+      {
+        id: user.id,
+        restaurant_id: user.id,
+        puerto: PORT,
+        nombre: user.nombre,
+        email: user.email,
+      },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    const userResponse = {
+      id: user.id,
+      nombre: user.nombre,
+      email: user.email,
+      telefono: user.telefono,
+      direccion: user.direccion,
+      puerto: user.puerto,
+      subdominio: user.subdominio,
+      activo: user.activo,
+      rol: "admin",
+      restaurant_id: user.id,
+    };
+
+    await connection.end();
+
+    console.log(`✅ Login exitoso en tenant ${PORT}: ${user.nombre}`);
+    res.json({
+      message: "Login exitoso",
+      user: userResponse,
+      token: token,
+    });
+  } catch (error) {
+    console.error("❌ Error en login del tenant:", error);
+    if (connection) await connection.end();
+    res.status(500).json({ 
+      error: error.message || "Error interno del servidor"
+    });
+  }
+});
+
 // Ruta de verificación de token
 app.get("/api/auth/verify", async (req, res) => {
   try {
@@ -823,7 +916,7 @@ app.get("/api/restaurant/info", verifyToken, async (req, res) => {
   try {
     const connection = await connectDB();
     const [restaurants] = await connection.execute(
-      "SELECT id, nombre, email, telefono, direccion, puerto, subdominio, activo FROM restaurants WHERE id = ?",
+      "SELECT id, nombre, email, telefono, direccion, puerto, subdominio, activo, logo_path, cover_path FROM restaurants WHERE id = ?",
       [TENANT_ID]
     );
     await connection.end();
@@ -832,7 +925,17 @@ app.get("/api/restaurant/info", verifyToken, async (req, res) => {
       return res.status(404).json({ error: "Restaurante no encontrado" });
     }
 
-    res.json(restaurants[0]);
+    const restaurant = restaurants[0];
+    
+    // Construir URLs completas para las imágenes
+    if (restaurant.logo_path) {
+      restaurant.logo_url = `http://localhost:${PORT}${restaurant.logo_path}`;
+    }
+    if (restaurant.cover_path) {
+      restaurant.cover_url = `http://localhost:${PORT}${restaurant.cover_path}`;
+    }
+
+    res.json(restaurant);
   } catch (error) {
     console.error("Error obteniendo información:", error);
     res.status(500).json({ error: "Error interno del servidor" });

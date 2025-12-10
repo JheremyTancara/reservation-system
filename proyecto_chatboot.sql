@@ -13,7 +13,24 @@ CREATE DATABASE `chatbot_reservas`;
 USE `chatbot_reservas`;
 
 -- ============================================
--- 2. TABLA: restaurants (Restaurantes principales)
+-- 2. TABLA: users (Usuarios del sistema) - DEBE CREARSE PRIMERO
+-- ============================================
+CREATE TABLE `users` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `email` varchar(255) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `full_name` varchar(255) NOT NULL,
+  `phone` varchar(50) DEFAULT NULL,
+  `profile_photo` varchar(500) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_email` (`email`),
+  KEY `idx_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ============================================
+-- 3. TABLA: restaurants (Restaurantes principales)
 -- ============================================
 CREATE TABLE `restaurants` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -28,14 +45,24 @@ CREATE TABLE `restaurants` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `reset_token` varchar(255) DEFAULT NULL,
   `reset_token_expire` datetime DEFAULT NULL,
+  `user_id` int DEFAULT NULL,
+  `subscription_status` enum('pending','active','suspended','cancelled') DEFAULT 'pending',
+  `payment_proof_path` varchar(500) DEFAULT NULL,
+  `logo_path` varchar(500) DEFAULT NULL,
+  `cover_path` varchar(500) DEFAULT NULL,
+  `last_updated` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `admin_notes` text,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_email` (`email`),
   UNIQUE KEY `uk_puerto` (`puerto`),
-  UNIQUE KEY `uk_subdominio` (`subdominio`)
+  UNIQUE KEY `uk_subdominio` (`subdominio`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_subscription_status` (`subscription_status`),
+  CONSTRAINT `fk_restaurants_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 3. TABLA: port_manager (Gestor de puertos)
+-- 4. TABLA: port_manager (Gestor de puertos)
 -- ============================================
 CREATE TABLE `port_manager` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -47,7 +74,7 @@ CREATE TABLE `port_manager` (
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 4. TABLA: branches (Sucursales)
+-- 5. TABLA: branches (Sucursales)
 -- ============================================
 CREATE TABLE `branches` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -64,7 +91,7 @@ CREATE TABLE `branches` (
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 5. TABLA: categorias (Categorías de menú)
+-- 6. TABLA: categorias (Categorías de menú)
 -- ============================================
 CREATE TABLE `categorias` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -76,7 +103,7 @@ CREATE TABLE `categorias` (
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 6. TABLA: menu_items (Ítems del menú)
+-- 7. TABLA: menu_items (Ítems del menú)
 -- ============================================
 CREATE TABLE `menu_items` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -99,7 +126,7 @@ CREATE TABLE `menu_items` (
 ) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 7. TABLA: mesas (Mesas)
+-- 8. TABLA: mesas (Mesas)
 -- ============================================
 CREATE TABLE `mesas` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -117,7 +144,7 @@ CREATE TABLE `mesas` (
 ) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 8. TABLA: reservas (Reservas)
+-- 9. TABLA: reservas (Reservas)
 -- ============================================
 CREATE TABLE `reservas` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -141,7 +168,7 @@ CREATE TABLE `reservas` (
 ) ENGINE=InnoDB AUTO_INCREMENT=64 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 9. TABLA: reserva_platos (Platos por reserva)
+-- 10. TABLA: reserva_platos (Platos por reserva)
 -- ============================================
 CREATE TABLE `reserva_platos` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -163,7 +190,7 @@ CREATE TABLE `reserva_platos` (
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
--- 10. TABLA: messages (Mensajes del chatbot)
+-- 11. TABLA: messages (Mensajes del chatbot)
 -- ============================================
 CREATE TABLE `messages` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -182,8 +209,30 @@ CREATE TABLE `messages` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ============================================
+-- 12. TABLA: admin_settings (Configuración del administrador)
+-- ============================================
+CREATE TABLE `admin_settings` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `setting_key` varchar(100) NOT NULL,
+  `setting_value` text,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_setting_key` (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ============================================
 -- INSERCIÓN DE DATOS INICIALES
 -- ============================================
+
+-- ============================================
+-- USUARIOS DEL SISTEMA
+-- ============================================
+-- Usuario administrador por defecto
+-- Email: admin@mesacloud.com
+-- Password: admin123 (texto plano)
+INSERT INTO `users` (`id`, `email`, `password`, `full_name`, `phone`, `created_at`) VALUES
+(1, 'admin@mesacloud.com', 'admin123', 'Administrador', NULL, NOW());
 
 -- ============================================
 -- GESTOR DE PUERTOS
@@ -195,9 +244,9 @@ INSERT INTO `port_manager` (`id`, `puerto_inicio`, `puerto_actual`, `puertos_ocu
 -- RESTAURANTES PRINCIPALES
 -- ============================================
 -- Incluye: Gus Restaurant Group y Pizza Palace
-INSERT INTO `restaurants` (`id`, `nombre`, `email`, `password`, `telefono`, `direccion`, `puerto`, `subdominio`, `activo`, `created_at`) VALUES
-(1, 'Gus Restaurant Group', 'admin@gusrestaurant.com', 'admin123', '70123456', 'Av. Principal 100', 3001, 'gus-main', 1, '2025-06-29 10:00:00'),
-(2, 'Pizza Palace', 'admin@pizzapalace.com', 'admin321', '70234567', 'Calle Comercio 200', 3002, 'pizza-palace', 1, '2025-06-29 10:15:00');
+INSERT INTO `restaurants` (`id`, `nombre`, `email`, `password`, `telefono`, `direccion`, `puerto`, `subdominio`, `activo`, `subscription_status`, `created_at`) VALUES
+(1, 'Gus Restaurant Group', 'admin@gusrestaurant.com', 'admin123', '70123456', 'Av. Principal 100', 3001, 'gus-main', 1, 'active', '2025-06-29 10:00:00'),
+(2, 'Pizza Palace', 'admin@pizzapalace.com', 'admin321', '70234567', 'Calle Comercio 200', 3002, 'pizza-palace', 1, 'active', '2025-06-29 10:15:00');
 
 -- ============================================
 -- SUCURSALES
@@ -254,6 +303,12 @@ INSERT INTO `reservas` (`id`, `cliente_nombre`, `fecha`, `hora`, `personas`, `es
 INSERT INTO `reserva_platos` (`id`, `reserva_id`, `menu_item_id`, `nombre`, `precio`, `branch_id`, `restaurant_id`) VALUES
 (9, 63, 17, 'Promo Burguer', 35.00, 1, 1),
 (10, 63, 21, 'Sprite de 500ml', 6.00, 1, 1);
+
+-- ============================================
+-- CONFIGURACIÓN DEL ADMINISTRADOR
+-- ============================================
+INSERT INTO `admin_settings` (`setting_key`, `setting_value`) VALUES
+('admin_email', 'admin@restaurantreservas.com');
 
 -- ============================================
 -- FIN DEL SCRIPT

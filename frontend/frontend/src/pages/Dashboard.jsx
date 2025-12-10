@@ -40,19 +40,19 @@ const Dashboard = () => {
   const [guardandoTelefono, setGuardandoTelefono] = useState(false);
   const [guardandoContexto, setGuardandoContexto] = useState(false);
   const [showMenuPopup, setShowMenuPopup] = useState(false);
+  // Detectar puerto
+  const port = window.location.port;
+  const isPizza = port === "3002";
+
   const [configuracion, setConfiguracion] = useState({
     platosMinimos: 5,
     colorTema: "#ea580c", // orange-600
-    logoUrl: logoGuss, // Logo predeterminado de Gus's
-    fondoUrl: bg, // Fondo predeterminado de Gus's
+    logoUrl: isPizza ? pizzaLogo : logoGuss, // Logo predeterminado según el restaurante
+    fondoUrl: isPizza ? pizzaBg : bg, // Fondo predeterminado según el restaurante
   });
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
   const [mensajeConfiguracion, setMensajeConfiguracion] = useState("");
   const api = useApi();
-
-  // Detectar puerto
-  const port = window.location.port;
-  const isPizza = port === "3002";
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
@@ -176,15 +176,68 @@ const Dashboard = () => {
     const userData = JSON.parse(usuarioGuardado);
     setUsuario(userData);
 
+    // Cargar información del restaurante (incluyendo imágenes)
+    const cargarInfoRestaurante = async () => {
+      try {
+        const res = await api.get("/restaurant/info");
+        const restaurantInfo = res.data;
+        
+        // Si el restaurante tiene logo_path o cover_path, usarlos
+        // Si no, usar las imágenes por defecto según el restaurante
+        const defaultLogo = isPizza ? pizzaLogo : logoGuss;
+        const defaultFondo = isPizza ? pizzaBg : bg;
+        
+        if (restaurantInfo.logo_url || restaurantInfo.logo_path) {
+          const logoUrl = restaurantInfo.logo_url || `http://localhost:${port}${restaurantInfo.logo_path}`;
+          setConfiguracion(prev => ({
+            ...prev,
+            logoUrl: logoUrl
+          }));
+        } else {
+          // Si no tiene logo en BD, usar el por defecto del restaurante
+          setConfiguracion(prev => ({
+            ...prev,
+            logoUrl: defaultLogo
+          }));
+        }
+        
+        if (restaurantInfo.cover_url || restaurantInfo.cover_path) {
+          const coverUrl = restaurantInfo.cover_url || `http://localhost:${port}${restaurantInfo.cover_path}`;
+          setConfiguracion(prev => ({
+            ...prev,
+            fondoUrl: coverUrl
+          }));
+        } else {
+          // Si no tiene fondo en BD, usar el por defecto del restaurante
+          setConfiguracion(prev => ({
+            ...prev,
+            fondoUrl: defaultFondo
+          }));
+        }
+      } catch (err) {
+        console.error("Error al cargar información del restaurante:", err);
+        // En caso de error, usar las imágenes por defecto
+        setConfiguracion(prev => ({
+          ...prev,
+          logoUrl: isPizza ? pizzaLogo : logoGuss,
+          fondoUrl: isPizza ? pizzaBg : bg
+        }));
+      }
+    };
+
     // Cargar configuración guardada
     const configGuardada = localStorage.getItem(`config_${userData.id}`);
     if (configGuardada) {
       try {
-        setConfiguracion(JSON.parse(configGuardada));
+        const config = JSON.parse(configGuardada);
+        setConfiguracion(config);
       } catch (err) {
         console.error("Error al cargar configuración:", err);
       }
     }
+
+    // Cargar información del restaurante después de cargar la configuración guardada
+    cargarInfoRestaurante();
 
     // Obtener estadísticas del restaurante
     const obtenerEstadisticas = async () => {
@@ -207,7 +260,7 @@ const Dashboard = () => {
     obtenerEstadisticas();
     cargarContextoBot();
     cargarSucursales();
-  }, [api, cargarContextoBot, cargarSucursales]);
+  }, [api, cargarContextoBot, cargarSucursales, port]);
 
   const handleLogout = () => {
     localStorage.removeItem("usuario");
@@ -460,7 +513,11 @@ const Dashboard = () => {
           <img
             src={configuracion.logoUrl || (isPizza ? pizzaLogo : logoGuss)}
             alt="Logo"
-            className="w-10 h-10"
+            className="w-10 h-10 object-contain"
+            onError={(e) => {
+              // Si falla la imagen del restaurante, usar la por defecto
+              e.target.src = isPizza ? pizzaLogo : logoGuss;
+            }}
           />
           <h2
             className="text-2xl font-bold"
