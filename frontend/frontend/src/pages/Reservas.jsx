@@ -46,7 +46,8 @@ const Reservas = () => {
   const obtenerMesas = async () => {
     try {
       setLoadingMesas(true);
-      const res = await api.get("/mesas");
+      // Solo obtener mesas disponibles
+      const res = await api.get("/mesas?disponibles=true");
       setMesas(res.data);
     } catch (err) {
       console.error("Error obteniendo mesas:", err);
@@ -105,11 +106,17 @@ const Reservas = () => {
     }
 
     const mesaSeleccionada = mesas.find((m) => m.id === Number(formData.mesa_id));
+
+    // Normalizar fecha (YYYY-MM-DD) y hora (HH:MM)
+    const fechaNormalizada = formData.fecha
+      ? new Date(formData.fecha).toISOString().split("T")[0]
+      : "";
+    const horaNormalizada = formData.hora ? formData.hora.substring(0, 5) : "";
     const payload = {
       cliente_nombre: formData.cliente_nombre.trim(),
       personas: Number(formData.personas),
-      fecha: formData.fecha,
-      hora: formData.hora,
+      fecha: fechaNormalizada,
+      hora: horaNormalizada,
       estado: formData.estado,
       mesa_id: Number(formData.mesa_id),
       branch_id: mesaSeleccionada?.branch_id || null,
@@ -128,10 +135,14 @@ const Reservas = () => {
         mesa_id: "",
       });
       await obtenerReservas();
+      await obtenerMesas(); // Recargar mesas para reflejar cambios de estado
     } catch (err) {
       console.error("Error registrando reserva:", err);
+      console.error("Detalles del error:", err.response?.data);
       const msg =
         err.response?.data?.error ||
+        err.response?.data?.details ||
+        err.message ||
         "No se pudo registrar la reserva. Verifica los datos.";
       setError(msg);
     } finally {

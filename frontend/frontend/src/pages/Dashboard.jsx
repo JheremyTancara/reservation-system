@@ -1,5 +1,5 @@
 import { LogOut, Menu, X } from "lucide-react";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import bg from "../assets/fondo-dashboard.png";
 import logoGuss from "../assets/logo-guss.png";
@@ -40,19 +40,55 @@ const Dashboard = () => {
   const [guardandoTelefono, setGuardandoTelefono] = useState(false);
   const [guardandoContexto, setGuardandoContexto] = useState(false);
   const [showMenuPopup, setShowMenuPopup] = useState(false);
+  const [platosMenu, setPlatosMenu] = useState([]);
+  const [cargandoPlatos, setCargandoPlatos] = useState(false);
+  const [configuracion, setConfiguracion] = useState({
+    platosMinimos: 5,
+    colorTema: "#ea580c", // orange-600
+    logoUrl: logoGuss, // Logo predeterminado de Gus's
+    fondoUrl: bg, // Fondo predeterminado de Gus's
+  });
+  const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
+  const [mensajeConfiguracion, setMensajeConfiguracion] = useState("");
+  const [nombreRestaurante, setNombreRestaurante] = useState("");
+  const api = useApi();
+
   // Detectar puerto
   const port = window.location.port;
   const isPizza = port === "3002";
 
-  const [configuracion, setConfiguracion] = useState({
-    platosMinimos: 5,
-    colorTema: "#ea580c", // orange-600
-    logoUrl: isPizza ? pizzaLogo : logoGuss, // Logo predeterminado según el restaurante
-    fondoUrl: isPizza ? pizzaBg : bg, // Fondo predeterminado según el restaurante
-  });
-  const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
-  const [mensajeConfiguracion, setMensajeConfiguracion] = useState("");
-  const api = useApi();
+  // Derivar sucursales desde los platos del menú (fallback)
+  const branchesFromMenu = useMemo(() => {
+    const map = new Map();
+    platosMenu.forEach((plato) => {
+      if (plato.branch_id != null) {
+        const idNum = Number(plato.branch_id);
+        if (!map.has(idNum)) {
+          map.set(idNum, {
+            id: idNum,
+            nombre: plato.branch_nombre || `Sucursal ${idNum}`,
+          });
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [platosMenu]);
+
+  // Mezclar sucursales de API con las derivadas del menú
+  const branchesUI = useMemo(() => {
+    const byId = new Map();
+    branchesFromMenu.forEach((b) => {
+      if (b.id != null) byId.set(Number(b.id), { ...b });
+    });
+    if (branches && branches.length > 0) {
+      branches.forEach((b) => {
+        const idNum = Number(b.id);
+        const prev = byId.get(idNum) || {};
+        byId.set(idNum, { ...prev, ...b });
+      });
+    }
+    return Array.from(byId.values());
+  }, [branches, branchesFromMenu]);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
@@ -106,9 +142,9 @@ const Dashboard = () => {
     }
 
     // Si hay sucursales, validar que cada una tenga la cantidad mínima
-    if (branches && branches.length > 0) {
-      for (const branch of branches) {
-        const platosEnSucursal = menuTags.filter(tag => tag.branch_id === branch.id);
+    if (branchesUI && branchesUI.length > 0) {
+      for (const branch of branchesUI) {
+        const platosEnSucursal = platosMenu.filter(plato => Number(plato.branch_id) === Number(branch.id));
         if (platosEnSucursal.length < configuracion.platosMinimos) {
           return false;
         }
@@ -116,7 +152,7 @@ const Dashboard = () => {
       return true;
     } else {
       // Si no hay sucursales, validar el total
-      return menuTags.length >= configuracion.platosMinimos;
+      return platosMenu.length >= configuracion.platosMinimos;
     }
   };
 
@@ -142,6 +178,40 @@ const Dashboard = () => {
       setCargandoSucursales(false);
     }
   }, [api]);
+
+  const cargarPlatosMenu = useCallback(async () => {
+    try {
+      setCargandoPlatos(true);
+      const res = await api.get("/menu");
+      setPlatosMenu(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Error cargando platos del menú:", err);
+      setPlatosMenu([]);
+    } finally {
+      setCargandoPlatos(false);
+    }
+  }, [api]);
+
+  const cargarInfoRestaurante = useCallback(async () => {
+    try {
+      const res = await api.get("/restaurant/info");
+      const restaurantInfo = res.data;
+      if (restaurantInfo.nombre) {
+        setNombreRestaurante(restaurantInfo.nombre);
+      }
+      if (restaurantInfo.logo_url || restaurantInfo.logo_path) {
+        const logoUrl = restaurantInfo.logo_url || `http://localhost:${port}${restaurantInfo.logo_path}`;
+        setConfiguracion((prev) => ({ ...prev, logoUrl }));
+      }
+      if (restaurantInfo.cover_url || restaurantInfo.cover_path) {
+        const coverUrl = restaurantInfo.cover_url || `http://localhost:${port}${restaurantInfo.cover_path}`;
+        setConfiguracion((prev) => ({ ...prev, fondoUrl: coverUrl }));
+      }
+    } catch (err) {
+      console.error("Error al cargar información del restaurante:", err);
+      // fallback ya en configuracion inicial
+    }
+  }, [api, port]);
 
   const cargarContextoBot = useCallback(async () => {
     try {
@@ -176,68 +246,15 @@ const Dashboard = () => {
     const userData = JSON.parse(usuarioGuardado);
     setUsuario(userData);
 
-    // Cargar información del restaurante (incluyendo imágenes)
-    const cargarInfoRestaurante = async () => {
-      try {
-        const res = await api.get("/restaurant/info");
-        const restaurantInfo = res.data;
-        
-        // Si el restaurante tiene logo_path o cover_path, usarlos
-        // Si no, usar las imágenes por defecto según el restaurante
-        const defaultLogo = isPizza ? pizzaLogo : logoGuss;
-        const defaultFondo = isPizza ? pizzaBg : bg;
-        
-        if (restaurantInfo.logo_url || restaurantInfo.logo_path) {
-          const logoUrl = restaurantInfo.logo_url || `http://localhost:${port}${restaurantInfo.logo_path}`;
-          setConfiguracion(prev => ({
-            ...prev,
-            logoUrl: logoUrl
-          }));
-        } else {
-          // Si no tiene logo en BD, usar el por defecto del restaurante
-          setConfiguracion(prev => ({
-            ...prev,
-            logoUrl: defaultLogo
-          }));
-        }
-        
-        if (restaurantInfo.cover_url || restaurantInfo.cover_path) {
-          const coverUrl = restaurantInfo.cover_url || `http://localhost:${port}${restaurantInfo.cover_path}`;
-          setConfiguracion(prev => ({
-            ...prev,
-            fondoUrl: coverUrl
-          }));
-        } else {
-          // Si no tiene fondo en BD, usar el por defecto del restaurante
-          setConfiguracion(prev => ({
-            ...prev,
-            fondoUrl: defaultFondo
-          }));
-        }
-      } catch (err) {
-        console.error("Error al cargar información del restaurante:", err);
-        // En caso de error, usar las imágenes por defecto
-        setConfiguracion(prev => ({
-          ...prev,
-          logoUrl: isPizza ? pizzaLogo : logoGuss,
-          fondoUrl: isPizza ? pizzaBg : bg
-        }));
-      }
-    };
-
     // Cargar configuración guardada
     const configGuardada = localStorage.getItem(`config_${userData.id}`);
     if (configGuardada) {
       try {
-        const config = JSON.parse(configGuardada);
-        setConfiguracion(config);
+        setConfiguracion(JSON.parse(configGuardada));
       } catch (err) {
         console.error("Error al cargar configuración:", err);
       }
     }
-
-    // Cargar información del restaurante después de cargar la configuración guardada
-    cargarInfoRestaurante();
 
     // Obtener estadísticas del restaurante
     const obtenerEstadisticas = async () => {
@@ -260,7 +277,9 @@ const Dashboard = () => {
     obtenerEstadisticas();
     cargarContextoBot();
     cargarSucursales();
-  }, [api, cargarContextoBot, cargarSucursales, port]);
+    cargarPlatosMenu();
+    cargarInfoRestaurante();
+  }, [api, cargarContextoBot, cargarSucursales, cargarPlatosMenu, cargarInfoRestaurante]);
 
   const handleLogout = () => {
     localStorage.removeItem("usuario");
@@ -368,9 +387,9 @@ const Dashboard = () => {
     }
 
     // Validar que cada sucursal tenga al menos la cantidad mínima de platos
-    if (branches && branches.length > 0) {
-      for (const branch of branches) {
-        const platosEnSucursal = menuTags.filter(tag => tag.branch_id === branch.id);
+    if (branchesUI && branchesUI.length > 0) {
+      for (const branch of branchesUI) {
+        const platosEnSucursal = platosMenu.filter(plato => Number(plato.branch_id) === Number(branch.id));
         if (platosEnSucursal.length < configuracion.platosMinimos) {
           alert(`No se pudo completar el entrenamiento. La sucursal "${branch.nombre}" necesita al menos ${configuracion.platosMinimos} platos (tiene ${platosEnSucursal.length}).`);
           return;
@@ -378,7 +397,7 @@ const Dashboard = () => {
       }
     } else {
       // Si no hay sucursales, validar el total de platos
-      if (menuTags.length < configuracion.platosMinimos) {
+      if (platosMenu.length < configuracion.platosMinimos) {
         alert("No se pudo completar el entrenamiento. Verifica que hayas configurado toda la información necesaria.");
         return;
       }
@@ -390,12 +409,12 @@ const Dashboard = () => {
       await api.post("/bot/train", {
         contexto: contextoBot,
         telefono: telefonoBot,
-        menuEntrenamiento: menuTags.map(
-          ({ nombre, precio, branch_id, branch_nombre }) => ({
-            nombre,
-            precio,
-            branch_id,
-            branch_nombre,
+        menuEntrenamiento: platosMenu.map(
+          (plato) => ({
+            nombre: plato.nombre,
+            precio: plato.precio,
+            branch_id: plato.branch_id,
+            branch_nombre: plato.branch_nombre || "Sucursal",
           })
         ),
       });
@@ -416,12 +435,12 @@ const Dashboard = () => {
       await api.post("/bot/train", {
         contexto: contextoBot,
         telefono: telefonoBot,
-        menuEntrenamiento: menuTags.map(
-          ({ nombre, precio, branch_id, branch_nombre }) => ({
-            nombre,
-            precio,
-            branch_id,
-            branch_nombre,
+        menuEntrenamiento: platosMenu.map(
+          (plato) => ({
+            nombre: plato.nombre,
+            precio: plato.precio,
+            branch_id: plato.branch_id,
+            branch_nombre: plato.branch_nombre || "Sucursal",
           })
         ),
       });
@@ -442,12 +461,12 @@ const Dashboard = () => {
       await api.post("/bot/train", {
         contexto: contextoBot,
         telefono: telefonoBot,
-        menuEntrenamiento: menuTags.map(
-          ({ nombre, precio, branch_id, branch_nombre }) => ({
-            nombre,
-            precio,
-            branch_id,
-            branch_nombre,
+        menuEntrenamiento: platosMenu.map(
+          (plato) => ({
+            nombre: plato.nombre,
+            precio: plato.precio,
+            branch_id: plato.branch_id,
+            branch_nombre: plato.branch_nombre || "Sucursal",
           })
         ),
       });
@@ -513,17 +532,18 @@ const Dashboard = () => {
           <img
             src={configuracion.logoUrl || (isPizza ? pizzaLogo : logoGuss)}
             alt="Logo"
-            className="w-10 h-10 object-contain"
-            onError={(e) => {
-              // Si falla la imagen del restaurante, usar la por defecto
-              e.target.src = isPizza ? pizzaLogo : logoGuss;
-            }}
+            className="w-10 h-10"
           />
           <h2
-            className="text-2xl font-bold"
+            className="text-base font-semibold leading-tight truncate max-w-[8rem]"
             style={{ color: configuracion.colorTema }}
+            title={nombreRestaurante ? `${nombreRestaurante} Admin` : (isPizza ? "Pizza Palace Admin" : "Gus's Admin")}
           >
-            {isPizza ? "Pizza Palace Admin" : "Gus's Admin"}
+            {nombreRestaurante
+              ? `${nombreRestaurante} Admin`
+              : isPizza
+              ? "Pizza Palace Admin"
+              : "Gus's Admin"}
           </h2>
           <button
             onClick={handleLogout}
@@ -765,43 +785,45 @@ const Dashboard = () => {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {cargandoSucursales ? (
                 <p className="text-gray-500 col-span-full">Cargando sucursales...</p>
-              ) : !branches || branches.length === 0 ? (
+              ) : !branchesUI || branchesUI.length === 0 ? (
                 <p className="text-gray-500 col-span-full">
                   Aún no tienes sucursales registradas.
                 </p>
               ) : (
-                branches.map((branch) => (
+                branchesUI.map((branch) => (
                   <div
-                    key={branch.id}
+                    key={branch.id || branch.nombre}
                     className="border border-gray-100 rounded-xl p-4 bg-gray-50"
                   >
                     <div className="flex justify-between items-start gap-2">
                       <div>
                         <p className="font-semibold text-gray-800">{branch.nombre}</p>
-                        <p className="text-xs text-gray-500">{branch.email}</p>
+                        <p className="text-xs text-gray-500">{branch.email || "sin email"}</p>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          className="text-xs text-orange-600 hover:underline"
-                          onClick={() =>
-                            setBranchForm({
-                              id: branch.id,
-                              nombre: branch.nombre,
-                              email: branch.email,
-                              telefono: branch.telefono || "",
-                              direccion: branch.direccion || "",
-                            })
-                          }
-                        >
-                          Editar
-                        </button>
-                        <button
-                          className="text-xs text-red-500 hover:underline"
-                          onClick={() => handleEliminarSucursal(branch.id)}
-                        >
-                          Eliminar
-                        </button>
-                      </div>
+                      {branch.id && (
+                        <div className="flex gap-2">
+                          <button
+                            className="text-xs text-orange-600 hover:underline"
+                            onClick={() =>
+                              setBranchForm({
+                                id: branch.id,
+                                nombre: branch.nombre,
+                                email: branch.email || "",
+                                telefono: branch.telefono || "",
+                                direccion: branch.direccion || "",
+                              })
+                            }
+                          >
+                            Editar
+                          </button>
+                          <button
+                            className="text-xs text-red-500 hover:underline"
+                            onClick={() => handleEliminarSucursal(branch.id)}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <p className="text-sm text-gray-600 mt-2">
                       {branch.telefono || "Sin teléfono"}
@@ -1110,33 +1132,47 @@ const Dashboard = () => {
 
         {/* Entrenamiento del Bot */}
         <section className="bg-white/80 backdrop-blur-lg rounded-xl p-6 shadow-md mt-6">
-          <div className="flex items-center gap-3 mb-4">
-            <h3 className="text-xl font-semibold text-gray-800">
-              Entrenar Bot de Atención al Cliente
-            </h3>
-            {/* Indicador de estado del bot */}
-            <div className="flex items-center gap-2">
-              <div 
-                className="w-3 h-3 rounded-full"
-                style={{
-                  backgroundColor: isBotReady()
-                    ? configuracion.colorTema
-                    : '#9ca3af'
-                }}
-              ></div>
-              <span 
-                className="text-xs font-medium"
-                style={{
-                  color: isBotReady()
-                    ? configuracion.colorTema
-                    : '#6b7280'
-                }}
-              >
-                {isBotReady()
-                  ? 'Activo'
-                  : 'Inactivo'}
-              </span>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xl font-semibold text-gray-800">
+                Entrenar Bot de Atención al Cliente
+              </h3>
+              {/* Indicador de estado del bot */}
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-3 h-3 rounded-full"
+                  style={{
+                    backgroundColor: isBotReady()
+                      ? configuracion.colorTema
+                      : '#9ca3af'
+                  }}
+                ></div>
+                <span 
+                  className="text-xs font-medium"
+                  style={{
+                    color: isBotReady()
+                      ? configuracion.colorTema
+                      : '#6b7280'
+                  }}
+                >
+                  {isBotReady()
+                    ? 'Activo'
+                    : 'Inactivo'}
+                </span>
+              </div>
             </div>
+            <button
+              onClick={() => {
+                cargarPlatosMenu();
+                setShowMenuPopup(true);
+              }}
+              style={{ backgroundColor: configuracion.colorTema }}
+              className="px-3 py-1 text-white rounded hover:opacity-90 transition flex items-center gap-1"
+              title="Ver menú"
+            >
+              <span className="text-lg">☰</span>
+              <span className="text-xs">Ver menú</span>
+            </button>
           </div>
           <p className="text-sm text-gray-600 mb-4">
             Proporciona contexto e información sobre tu restaurante para que el bot pueda atender mejor a tus clientes.
@@ -1205,118 +1241,6 @@ const Dashboard = () => {
               </div>
             </div>
 
-            <div 
-              className="border rounded-xl p-4"
-              style={{ 
-                backgroundColor: hexToRgba(configuracion.colorTema, 0.08),
-                borderColor: hexToRgba(configuracion.colorTema, 0.2)
-              }}
-            >
-              <div className="flex justify-between items-center mb-2">
-                <h4 
-                  className="text-sm font-semibold"
-                  style={{ color: configuracion.colorTema }}
-                >
-                  Platos de referencia para el bot
-                </h4>
-                <button
-                  onClick={() => setShowMenuPopup(true)}
-                  style={{ backgroundColor: configuracion.colorTema }}
-                  className="px-3 py-1 text-white rounded hover:opacity-90 transition flex items-center gap-1"
-                  title="Ver todos los platos"
-                >
-                  <span className="text-lg">☰</span>
-                  <span className="text-xs">Ver todos</span>
-                </button>
-              </div>
-              {mensajeTag && (
-                <p 
-                  className="text-xs mb-2"
-                  style={{ color: configuracion.colorTema }}
-                >
-                  {mensajeTag}
-                </p>
-              )}
-              <form className="space-y-3" onSubmit={handleAgregarTag}>
-                <input
-                  type="text"
-                  value={nuevoTag.nombre}
-                  onChange={(e) =>
-                    setNuevoTag((prev) => ({ ...prev, nombre: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 border border-orange-100 rounded focus:ring-2 focus:ring-orange-400"
-                  placeholder="Nombre del plato"
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={nuevoTag.precio}
-                  onChange={(e) =>
-                    setNuevoTag((prev) => ({ ...prev, precio: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 border border-orange-100 rounded focus:ring-2 focus:ring-orange-400"
-                  placeholder="Precio (Bs)"
-                />
-                <select
-                  value={nuevoTag.branch_id}
-                  onChange={(e) =>
-                    setNuevoTag((prev) => ({ ...prev, branch_id: e.target.value }))
-                  }
-                  disabled={!branches || branches.length === 0}
-                  className="w-full px-3 py-2 border border-orange-100 rounded focus:ring-2 focus:ring-orange-400 disabled:bg-gray-100"
-                >
-                  <option value="">
-                    {!branches || branches.length === 0
-                      ? "No hay sucursales disponibles"
-                      : "Selecciona una sucursal"}
-                  </option>
-                  {branches && branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.nombre}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="submit"
-                  disabled={!branches || branches.length === 0}
-                  style={{ backgroundColor: configuracion.colorTema }}
-                  className="w-full px-4 py-2 text-white rounded hover:opacity-90 transition disabled:opacity-50"
-                >
-                  Agregar plato
-                </button>
-              </form>
-              <div className="flex flex-wrap gap-2 mt-4">
-                {menuTags
-                  .filter(tag => !nuevoTag.branch_id || tag.branch_id === parseInt(nuevoTag.branch_id))
-                  .map((tag) => (
-                  <span
-                    key={tag.id}
-                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs"
-                    style={{ 
-                      backgroundColor: hexToRgba(configuracion.colorTema, 0.15),
-                      color: configuracion.colorTema
-                    }}
-                  >
-                    {tag.nombre} · Bs {Number(tag.precio).toFixed(2)}
-                    <button
-                      type="button"
-                      className="hover:opacity-70"
-                      style={{ color: configuracion.colorTema }}
-                      onClick={() => handleEliminarTag(tag.id)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                {(nuevoTag.branch_id ? menuTags.filter(tag => tag.branch_id === parseInt(nuevoTag.branch_id)) : menuTags).length === 0 && (
-                  <p className="text-xs text-gray-500">
-                    Aún no agregas platos de entrenamiento.
-                  </p>
-                )}
-              </div>
-            </div>
-
             <button
               onClick={handleEntrenarBot}
               disabled={guardandoBot}
@@ -1349,16 +1273,14 @@ const Dashboard = () => {
 
             {/* Contenido */}
             <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
-              {branches && branches.length > 0 ? (
-                branches.map((branch) => {
-                  const platosEnSucursal = menuTags.filter(
-                    (tag) => tag.branch_id === branch.id
+              {branchesUI && branchesUI.length > 0 ? (
+                branchesUI.map((branch) => {
+                  const platosEnSucursal = platosMenu.filter(
+                    (plato) => Number(plato.branch_id) === Number(branch.id)
                   );
                   
-                  if (platosEnSucursal.length === 0) return null;
-
                   return (
-                    <div key={branch.id} className="mb-6 last:mb-0">
+                    <div key={branch.id || branch.nombre} className="mb-6 last:mb-0">
                       <h4 
                         className="text-lg font-semibold mb-3 border-b-2 pb-2"
                         style={{ 
@@ -1368,32 +1290,29 @@ const Dashboard = () => {
                       >
                         {branch.nombre}
                       </h4>
-                      <div className="space-y-2">
-                        {platosEnSucursal.map((tag) => (
-                          <div
-                            key={tag.id}
-                            className="flex justify-between items-center bg-orange-50 p-3 rounded-lg hover:bg-orange-100 transition"
-                          >
-                            <div className="flex-1">
-                              <p className="font-medium text-gray-800">{tag.nombre}</p>
+                      {platosEnSucursal.length > 0 ? (
+                        <div className="space-y-2">
+                          {platosEnSucursal.map((plato) => (
+                            <div
+                              key={plato.id}
+                              className="flex justify-between items-center bg-orange-50 p-3 rounded-lg hover:bg-orange-100 transition"
+                            >
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-800">{plato.nombre}</p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-orange-600 font-semibold">
+                                  Bs {Number(plato.precio).toFixed(2)}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                              <span className="text-orange-600 font-semibold">
-                                Bs {Number(tag.precio).toFixed(2)}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  handleEliminarTag(tag.id);
-                                }}
-                                className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition"
-                                title="Eliminar plato"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic py-2">
+                          No hay platos en esta sucursal
+                        </p>
+                      )}
                     </div>
                   );
                 })
@@ -1407,7 +1326,7 @@ const Dashboard = () => {
             {/* Footer */}
             <div className="bg-gray-50 px-6 py-4 border-t flex justify-between items-center">
               <p className="text-sm text-gray-600">
-                Total: {menuTags.length} plato{menuTags.length !== 1 ? 's' : ''}
+                 Total: {platosMenu.length} plato{platosMenu.length !== 1 ? 's' : ''}
               </p>
               <button
                 onClick={() => setShowMenuPopup(false)}

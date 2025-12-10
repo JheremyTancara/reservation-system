@@ -341,7 +341,7 @@ app.get("/api/branches", async (req, res) => {
     res.json(branches);
   } catch (error) {
     console.error("Error obteniendo sucursales:", error);
-    res.status(500).json({ error: "Error interno del servidor" });
+    res.status(500).json({ error: "Error interno del servidor", details: error.message });
   }
 });
 
@@ -508,6 +508,10 @@ app.get("/api/menu", async (req, res) => {
 app.get("/api/reservas", verifyToken, async (req, res) => {
   try {
     const connection = await connectDB();
+    
+    // Completar reservas vencidas automáticamente
+    await completarReservasVencidas(connection);
+    
     const [reservas] = await connection.execute(
       `SELECT r.*, b.nombre as branch_nombre, m.numero as mesa_numero 
        FROM reservas r 
@@ -527,14 +531,28 @@ app.get("/api/reservas", verifyToken, async (req, res) => {
 
 // Crear reserva pública (sin autenticación)
 app.post("/api/reservas/public", async (req, res) => {
+  let connection = null;
   try {
     const { cliente_nombre, cliente_telefono, cliente_email, personas, fecha, hora, estado, branch_id, mesa_id, platos, total } = req.body;
-    const connection = await connectDB();
+    connection = await connectDB();
 
     await connection.query("START TRANSACTION");
 
-    // Obtener branch_id si no se proporciona
+    // Validar mesa y branch
     let finalBranchId = branch_id;
+    if (mesa_id) {
+      const [mesaData] = await connection.execute(
+        "SELECT branch_id FROM mesas WHERE id = ? AND restaurant_id = ?",
+        [mesa_id, TENANT_ID]
+      );
+      if (mesaData.length === 0) {
+        await connection.query("ROLLBACK");
+        await connection.end();
+        return res.status(400).json({ error: "La mesa no existe en este restaurante" });
+      }
+      finalBranchId = finalBranchId || mesaData[0].branch_id;
+    }
+
     if (!finalBranchId) {
       const [branches] = await connection.execute(
         "SELECT id FROM branches WHERE restaurant_id = ? LIMIT 1",
@@ -562,21 +580,30 @@ app.post("/api/reservas/public", async (req, res) => {
       for (const plato of platos) {
         await connection.execute(
           "INSERT INTO reserva_platos (reserva_id, menu_item_id, nombre, precio, branch_id, restaurant_id) VALUES (?, ?, ?, ?, ?, ?)",
-          [reservaId, plato.id, plato.nombre, plato.precio, finalBranchId, TENANT_ID]
+          [reservaId, plato.id || null, plato.nombre, plato.precio, finalBranchId, TENANT_ID]
         );
       }
     }
 
-    // Actualizar el estado de la mesa
+    // Actualizar el estado de la mesa a "ocupada" cuando se crea la reserva pública
     if (mesa_id) {
-      await connection.execute('UPDATE mesas SET estado = "reservada" WHERE id = ?', [mesa_id]);
+      await connection.execute('UPDATE mesas SET estado = "ocupada", disponible = 0 WHERE id = ?', [mesa_id]);
     }
 
     await connection.query("COMMIT");
     await connection.end();
+    connection = null;
 
     res.json({ message: "Reserva creada exitosamente", id: reservaId });
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.query("ROLLBACK");
+        await connection.end();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError);
+      }
+    }
     console.error("Error creando reserva pública:", error);
     res.status(500).json({ error: "Error interno del servidor" });
   }
@@ -584,14 +611,35 @@ app.post("/api/reservas/public", async (req, res) => {
 
 // Crear reserva (con autenticación)
 app.post("/api/reservas", verifyToken, async (req, res) => {
+  let connection = null;
   try {
     const { cliente_nombre, cliente_telefono, cliente_email, personas, fecha, hora, estado, branch_id, mesa_id, platos, total } = req.body;
-    const connection = await connectDB();
+    
+    // Validaciones básicas
+    if (!cliente_nombre || !personas || !fecha || !hora) {
+      return res.status(400).json({ error: "Faltan datos requeridos: nombre, personas, fecha y hora son obligatorios" });
+    }
+
+    connection = await connectDB();
 
     await connection.query("START TRANSACTION");
 
-    // Obtener branch_id si no se proporciona
+    // Obtener branch_id de la mesa si no se proporciona
     let finalBranchId = branch_id;
+    if (!finalBranchId && mesa_id) {
+      const [mesaData] = await connection.execute(
+        "SELECT branch_id FROM mesas WHERE id = ? AND restaurant_id = ?",
+        [mesa_id, TENANT_ID]
+      );
+      if (mesaData.length === 0) {
+        await connection.query("ROLLBACK");
+        await connection.end();
+        return res.status(400).json({ error: "La mesa no existe en este restaurante" });
+      }
+      finalBranchId = finalBranchId || mesaData[0].branch_id;
+    }
+
+    // Si aún no hay branch_id, obtener la primera sucursal
     if (!finalBranchId) {
       const [branches] = await connection.execute(
         "SELECT id FROM branches WHERE restaurant_id = ? LIMIT 1",
@@ -619,23 +667,40 @@ app.post("/api/reservas", verifyToken, async (req, res) => {
       for (const plato of platos) {
         await connection.execute(
           "INSERT INTO reserva_platos (reserva_id, menu_item_id, nombre, precio, branch_id, restaurant_id) VALUES (?, ?, ?, ?, ?, ?)",
-          [reservaId, plato.id, plato.nombre, plato.precio, finalBranchId, TENANT_ID]
+          [reservaId, plato.id || null, plato.nombre, plato.precio, finalBranchId, TENANT_ID]
         );
       }
     }
 
-    // Actualizar el estado de la mesa
+    // Actualizar el estado de la mesa a "ocupada" cuando se crea la reserva
     if (mesa_id) {
-      await connection.execute('UPDATE mesas SET estado = "ocupada" WHERE id = ?', [mesa_id]);
+      await connection.execute('UPDATE mesas SET estado = "ocupada", disponible = 0 WHERE id = ?', [mesa_id]);
     }
 
     await connection.query("COMMIT");
     await connection.end();
+    connection = null;
 
     res.json({ message: "Reserva creada exitosamente", id: reservaId });
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.query("ROLLBACK");
+        await connection.end();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError);
+      }
+    }
     console.error("Error creando reserva:", error);
-    res.status(500).json({ error: "Error interno del servidor" });
+    console.error("Detalles del error:", {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    res.status(500).json({ 
+      error: "Error interno del servidor",
+      details: error.message
+    });
   }
 });
 
@@ -648,11 +713,63 @@ app.put("/api/reservas/:id", verifyToken, async (req, res) => {
 
     await connection.query("START TRANSACTION");
 
+    // Obtener la reserva anterior para saber qué mesa tenía asignada
+    const [reservaAnterior] = await connection.execute(
+      "SELECT mesa_id, estado as estado_anterior FROM reservas WHERE id = ? AND restaurant_id = ?",
+      [id, TENANT_ID]
+    );
+
+    if (reservaAnterior.length === 0) {
+      await connection.query("ROLLBACK");
+      await connection.end();
+      return res.status(404).json({ error: "Reserva no encontrada" });
+    }
+
+    const mesaAnteriorId = reservaAnterior[0].mesa_id;
+    const estadoAnterior = reservaAnterior[0].estado_anterior;
+
     // Actualizar la reserva
     await connection.execute(
       "UPDATE reservas SET cliente_nombre = ?, personas = ?, fecha = ?, hora = ?, estado = ?, mesa_id = ?, total = ? WHERE id = ? AND restaurant_id = ?",
       [cliente_nombre, personas, fecha, hora, estado, mesa_id || null, total || 0, id, TENANT_ID]
     );
+
+    // Liberar la mesa anterior si cambió de mesa
+    if (mesaAnteriorId && mesaAnteriorId !== mesa_id) {
+      await connection.execute(
+        "UPDATE mesas SET estado = 'disponible', disponible = 1 WHERE id = ?",
+        [mesaAnteriorId]
+      );
+    }
+
+    // Actualizar el estado de la mesa según el estado de la reserva
+    if (mesa_id) {
+      if (estado === 'confirmada') {
+        // Si se confirma, la mesa pasa a ocupada
+        await connection.execute(
+          "UPDATE mesas SET estado = 'ocupada', disponible = 0 WHERE id = ?",
+          [mesa_id]
+        );
+      } else if (estado === 'cancelada') {
+        // Si se cancela, la mesa vuelve a disponible
+        await connection.execute(
+          "UPDATE mesas SET estado = 'disponible', disponible = 1 WHERE id = ?",
+          [mesa_id]
+        );
+      } else if (estado === 'pendiente') {
+        // Si está pendiente, la mesa está reservada
+        await connection.execute(
+          "UPDATE mesas SET estado = 'reservada', disponible = 0 WHERE id = ?",
+          [mesa_id]
+        );
+      }
+    } else if (mesaAnteriorId && !mesa_id) {
+      // Si se quita la mesa de la reserva, liberarla
+      await connection.execute(
+        "UPDATE mesas SET estado = 'disponible', disponible = 1 WHERE id = ?",
+        [mesaAnteriorId]
+      );
+    }
 
     // Eliminar platos anteriores
     await connection.execute("DELETE FROM reserva_platos WHERE reserva_id = ?", [id]);
@@ -675,6 +792,7 @@ app.put("/api/reservas/:id", verifyToken, async (req, res) => {
 
     res.json({ message: "Reserva actualizada exitosamente" });
   } catch (error) {
+    await connection.query("ROLLBACK");
     console.error("Error actualizando reserva:", error);
     res.status(500).json({ error: "Error interno del servidor" });
   }
@@ -686,20 +804,33 @@ app.delete("/api/reservas/:id", verifyToken, async (req, res) => {
     const { id } = req.params;
     const connection = await connectDB();
 
+    await connection.query("START TRANSACTION");
+
     // Obtener la mesa asociada antes de eliminar
-    const [reserva] = await connection.execute("SELECT mesa_id FROM reservas WHERE id = ?", [id]);
+    const [reserva] = await connection.execute(
+      "SELECT mesa_id FROM reservas WHERE id = ? AND restaurant_id = ?", 
+      [id, TENANT_ID]
+    );
     
-    // Eliminar la reserva (los platos se eliminan en cascada)
+    // Eliminar platos de la reserva
+    await connection.execute("DELETE FROM reserva_platos WHERE reserva_id = ?", [id]);
+    
+    // Eliminar la reserva
     await connection.execute("DELETE FROM reservas WHERE id = ? AND restaurant_id = ?", [id, TENANT_ID]);
 
     // Liberar la mesa si existe
     if (reserva.length > 0 && reserva[0].mesa_id) {
-      await connection.execute('UPDATE mesas SET estado = "disponible" WHERE id = ?', [reserva[0].mesa_id]);
+      await connection.execute(
+        "UPDATE mesas SET estado = 'disponible', disponible = 1 WHERE id = ?", 
+        [reserva[0].mesa_id]
+      );
     }
 
+    await connection.query("COMMIT");
     await connection.end();
     res.json({ message: "Reserva eliminada exitosamente" });
   } catch (error) {
+    await connection.query("ROLLBACK");
     console.error("Error eliminando reserva:", error);
     res.status(500).json({ error: "Error interno del servidor" });
   }
@@ -708,14 +839,21 @@ app.delete("/api/reservas/:id", verifyToken, async (req, res) => {
 // Obtener mesas del restaurante (PÚBLICO)
 app.get("/api/mesas", async (req, res) => {
   try {
+    const { disponibles } = req.query;
     const connection = await connectDB();
-    const [mesas] = await connection.execute(
-      `SELECT m.*, b.nombre as branch_nombre 
+    let query = `SELECT m.*, b.nombre as branch_nombre 
        FROM mesas m 
        LEFT JOIN branches b ON m.branch_id = b.id 
-       WHERE m.restaurant_id = ?`,
-      [TENANT_ID]
-    );
+       WHERE m.restaurant_id = ?`;
+    
+    const params = [TENANT_ID];
+    
+    // Si se solicita solo disponibles, filtrar por estado
+    if (disponibles === 'true') {
+      query += ` AND m.estado = 'disponible'`;
+    }
+    
+    const [mesas] = await connection.execute(query, params);
     await connection.end();
     res.json(mesas);
   } catch (error) {
@@ -740,13 +878,13 @@ app.post("/api/mesas", verifyToken, async (req, res) => {
     const branchId = await obtenerBranchPrincipal(connection);
 
     const [existeNumero] = await connection.execute(
-      "SELECT id FROM mesas WHERE restaurant_id = ? AND numero = ?",
-      [TENANT_ID, numero]
+      "SELECT id FROM mesas WHERE restaurant_id = ? AND branch_id = ? AND numero = ?",
+      [TENANT_ID, branchId, numero]
     );
 
     if (existeNumero.length > 0) {
       await connection.end();
-      return res.status(400).json({ error: "Ya existe una mesa con ese número" });
+      return res.status(400).json({ error: "Ya existe una mesa con ese número en esta sucursal" });
     }
 
     const estadoFinal = normalizarEstadoMesa(estado);
@@ -803,14 +941,17 @@ app.put("/api/mesas/:id", verifyToken, async (req, res) => {
       return res.status(404).json({ error: "Mesa no encontrada" });
     }
 
+    // Obtener branch_id de la mesa actual
+    const mesaBranchId = mesaActual[0].branch_id;
+    
     const [numeroEnUso] = await connection.execute(
-      "SELECT id FROM mesas WHERE restaurant_id = ? AND numero = ? AND id != ?",
-      [TENANT_ID, numero, id]
+      "SELECT id FROM mesas WHERE restaurant_id = ? AND branch_id = ? AND numero = ? AND id != ?",
+      [TENANT_ID, mesaBranchId, numero, id]
     );
 
     if (numeroEnUso.length > 0) {
       await connection.end();
-      return res.status(400).json({ error: "Ese número ya está asignado a otra mesa" });
+      return res.status(400).json({ error: "Ese número ya está asignado a otra mesa en esta sucursal" });
     }
 
     const estadoFinal = normalizarEstadoMesa(estado);
@@ -942,10 +1083,56 @@ app.get("/api/restaurant/info", verifyToken, async (req, res) => {
   }
 });
 
+// Función para completar reservas automáticamente después de la hora
+async function completarReservasVencidas(connection) {
+  try {
+    const ahora = new Date();
+    const fechaActual = ahora.toISOString().split('T')[0];
+    const horaActual = ahora.toTimeString().split(' ')[0].substring(0, 5); // HH:MM
+    
+    // Obtener reservas pendientes o confirmadas que ya pasaron su hora
+    const [reservasVencidas] = await connection.execute(
+      `SELECT id, mesa_id, fecha, hora 
+       FROM reservas 
+       WHERE restaurant_id = ? 
+       AND estado IN ('pendiente', 'confirmada')
+       AND (
+         (fecha < ?) OR 
+         (fecha = ? AND hora < ?)
+       )`,
+      [TENANT_ID, fechaActual, fechaActual, horaActual]
+    );
+
+    // Completar cada reserva vencida
+    for (const reserva of reservasVencidas) {
+      await connection.execute(
+        "UPDATE reservas SET estado = 'confirmada' WHERE id = ?",
+        [reserva.id]
+      );
+      
+      // Liberar la mesa si estaba reservada
+      if (reserva.mesa_id) {
+        await connection.execute(
+          "UPDATE mesas SET estado = 'disponible', disponible = 1 WHERE id = ?",
+          [reserva.mesa_id]
+        );
+      }
+    }
+
+    return reservasVencidas.length;
+  } catch (error) {
+    console.error("Error completando reservas vencidas:", error);
+    return 0;
+  }
+}
+
 // Obtener reservas con platos
 app.get("/api/reservas/complete", verifyToken, async (req, res) => {
   try {
     const connection = await connectDB();
+    
+    // Completar reservas vencidas automáticamente
+    await completarReservasVencidas(connection);
     
     // Obtener reservas
     const [reservas] = await connection.execute(

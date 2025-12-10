@@ -136,13 +136,42 @@ const Menu = () => {
   };
 
   const subirImagen = async (e) => {
+    const file = e.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    // Validar tamaño del archivo (5MB máximo)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La imagen es demasiado grande. El tamaño máximo es 5MB.');
+      e.target.value = ''; // Limpiar el input
+      return;
+    }
+
+    // Validar tipo de archivo
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Formato no permitido. Solo se permiten imágenes JPG, JPEG o PNG.');
+      e.target.value = ''; // Limpiar el input
+      return;
+    }
+
     try {
-    const formData = new FormData();
-    formData.append('imagen', e.target.files[0]);
+      const formData = new FormData();
+      formData.append('imagen', file);
       const res = await api.post('/upload', formData);
-    setNuevoPlato({ ...nuevoPlato, imagen_url: res.data.url });
+      
+      if (res.data && res.data.url) {
+        setNuevoPlato({ ...nuevoPlato, imagen_url: res.data.url });
+        alert('Imagen subida correctamente');
+      } else {
+        throw new Error('No se recibió la URL de la imagen');
+      }
     } catch (err) {
       console.error('Error subiendo imagen:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Error al subir la imagen';
+      alert(`Error: ${errorMsg}`);
+      e.target.value = ''; // Limpiar el input en caso de error
     }
   };
 

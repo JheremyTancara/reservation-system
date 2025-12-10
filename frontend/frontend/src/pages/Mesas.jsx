@@ -76,6 +76,13 @@ const Mesas = () => {
   useEffect(() => {
     fetchMesas();
     fetchReservas();
+    
+    // Actualizar mesas cada 30 segundos para reflejar cambios de estado
+    const interval = setInterval(() => {
+      fetchMesas();
+    }, 30000);
+    
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

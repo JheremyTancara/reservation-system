@@ -136,7 +136,9 @@ CREATE TABLE `mesas` (
   `branch_id` int DEFAULT NULL,
   `restaurant_id` int NOT NULL,
   `estado` varchar(20) DEFAULT 'disponible',
+  `descripcion` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_mesas_restaurant_branch_numero` (`restaurant_id`,`branch_id`,`numero`),
   KEY `branch_id` (`branch_id`),
   KEY `restaurant_id` (`restaurant_id`),
   CONSTRAINT `fk_mesas_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE,
@@ -149,6 +151,8 @@ CREATE TABLE `mesas` (
 CREATE TABLE `reservas` (
   `id` int NOT NULL AUTO_INCREMENT,
   `cliente_nombre` varchar(100) NOT NULL,
+  `cliente_telefono` varchar(20) DEFAULT NULL,
+  `cliente_email` varchar(100) DEFAULT NULL,
   `fecha` date NOT NULL,
   `hora` time NOT NULL,
   `personas` int NOT NULL,
