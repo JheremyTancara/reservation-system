@@ -3,8 +3,20 @@ import { useMemo } from "react";
 
 export const useApi = () => {
   const api = useMemo(() => {
-    const port = window.location.port;
-    const baseURL = `http://localhost:${port}/api`;
+    // Detectar puerto correcto del tenant: priorizar el puerto guardado del usuario
+    const portActual = window.location.port;
+    let portUsuario = null;
+    try {
+      const storedUser = localStorage.getItem("usuario");
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        portUsuario = parsed?.puerto || null;
+      }
+    } catch (e) {
+      console.warn("No se pudo leer usuario de localStorage:", e);
+    }
+    const basePort = portUsuario || portActual || "3001";
+    const baseURL = `http://localhost:${basePort}/api`;
 
     const instance = axios.create({
       baseURL,
@@ -27,6 +39,14 @@ export const useApi = () => {
         } else {
           console.warn("⚠️ No hay token en localStorage para la petición:", config.url);
         }
+
+        // Si el body es FormData, dejar que el navegador ponga el boundary
+        if (config.data instanceof FormData) {
+          if (config.headers) {
+            delete config.headers["Content-Type"];
+          }
+        }
+
         return config;
       },
       (error) => {
